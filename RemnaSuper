@@ -266,6 +266,43 @@ restore_backup() {
     pause
 }
 
+apt_update_upgrade() {
+    header "apt update && apt upgrade"
+    check_command apt-get || { pause; return; }
+    check_command sudo || { pause; return; }
+
+    step "apt-get update..."
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get update; then
+        error "apt-get update завершился с ошибкой."
+        pause
+        return
+    fi
+
+    step "apt-get upgrade..."
+    if sudo DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" upgrade -o com.ubuntu.ipt.needrestart=0; then
+        success "apt update && apt upgrade выполнены."
+    else
+        error "apt-get upgrade завершился с ошибкой."
+    fi
+
+    pause
+}
+
+install_remnawave_reverse_proxy() {
+    header "Установка remnawave-reverse-proxy"
+    check_command curl || { pause; return; }
+    check_command bash || { pause; return; }
+
+    step "Запуск install_remnawave.sh..."
+    if bash <(curl -Ls https://raw.githubusercontent.com/eGamesAPI/remnawave-reverse-proxy/refs/heads/main/install_remnawave.sh); then
+        success "remnawave-reverse-proxy установлен."
+    else
+        error "Установка remnawave-reverse-proxy завершилась с ошибкой."
+    fi
+
+    pause
+}
+
 setup_logrotate() {
     header "🗂️ Настройка ротации логов"
     if [ -f "$ROTATE_CONF" ]; then
@@ -623,7 +660,7 @@ show_geofiles_menu() {
     clear
     printf "${BOLD}${CYAN}"
     printf "╔════════════════════════════════════════════╗\n"
-    printf "║  RemnaSuper — geofiles                    ║\n"
+    printf "║  RemnaSuper — geofiles                     ║\n"
     printf "╚════════════════════════════════════════════╝\n"
     printf "${NC}\n"
     printf "  ${GREEN}УСТАНОВКА${NC}\n"
@@ -692,7 +729,7 @@ show_menu() {
     clear
     printf "${BOLD}${CYAN}"
     printf "╔════════════════════════════════════════════╗\n"
-    printf "║  RemnaSuper — интерактивное меню          ║\n"
+    printf "║  RemnaSuper — интерактивное меню           ║\n"
     printf "╚════════════════════════════════════════════╝\n"
     printf "${NC}\n"
     printf "Выберите действие:\n\n"
@@ -705,13 +742,15 @@ show_menu() {
     printf "  ${GREEN}🔄 УПРАВЛЕНИЕ${NC}\n"
     printf "  ${GREEN}6)${NC} 🔄 Перезапустить ноду\n"
     printf "  ${GREEN}7)${NC} 🔄 Перезапустить агента\n"
-    printf "  ${GREEN}8)${NC} ↩️  Восстановить из бэкапа\n\n"
+    printf "  ${GREEN}8)${NC} ↩️ Восстановить из бэкапа\n"
+    printf "  ${GREEN}9)${NC} 🔄 apt update && apt upgrade\n"
+    printf "  ${GREEN}10)${NC} 🔧 Установить remnawave-reverse-proxy\n\n"
     printf "  ${GREEN}🧰 ПРОЧЕЕ${NC}\n"
-    printf "  ${GREEN}9)${NC} 🌍 Установка/удаление geofiles\n"
-    printf "  ${GREEN}10)${NC} 🚀 Выполнить Node Accelerator\n\n"
+    printf "  ${GREEN}11)${NC} 🌍 Установка/удаление geofiles\n"
+    printf "  ${GREEN}12)${NC} 🚀 Выполнить Node Accelerator\n\n"
     printf "  ${RED}0)${NC} ❌ Выход\n\n"
     divider
-    printf "Ваш выбор [0-10]: "
+    printf "Ваш выбор [0-12]: "
 }
 
 main_menu() {
@@ -728,8 +767,10 @@ main_menu() {
             6) restart_node ;;
             7) restart_agent ;;
             8) restore_backup ;;
-            9) geofiles_menu ;;
-            10) run_node_accelerator ;;
+            9) apt_update_upgrade ;;
+            10) install_remnawave_reverse_proxy ;;
+            11) geofiles_menu ;;
+            12) run_node_accelerator ;;
             0) exit_menu ;;
             *) warn "Неверный выбор"; sleep 1 ;;
         esac
