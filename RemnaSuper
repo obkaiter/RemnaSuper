@@ -1,0 +1,747 @@
+#!/usr/bin/env bash
+#===============================================================================
+# RemnaSuper — объединённое интерактивное меню
+#===============================================================================
+
+# Цвета через printf-совместимый синтаксис
+RED='\e[0;31m'
+GREEN='\e[0;32m'
+YELLOW='\e[1;33m'
+BLUE='\e[0;34m'
+CYAN='\e[0;36m'
+WHITE='\e[1;37m'
+NC='\e[0m'
+BOLD='\e[1m'
+
+# Пути
+NODE_DIR="/opt/remnanode"
+AGENT_DIR="/opt/remnawave-node-agent"
+XRAY_SHARE_DIR="/opt/remnawave/xray/share"
+LOG_DIR="/var/log/remnanode"
+COMPOSE_FILE="$NODE_DIR/docker-compose.yml"
+ROTATE_CONF="/etc/logrotate.d/remnanode"
+
+#===============================================================================
+# Утилиты
+#===============================================================================
+info()    { printf "${BLUE}[ℹ️]${NC} %s\n" "$1"; }
+success() { printf "${GREEN}[✅]${NC} %s\n" "$1"; }
+warn()    { printf "${YELLOW}[⚠️]${NC} %s\n" "$1"; }
+error()   { printf "${RED}[❌]${NC} %s\n" "$1"; }
+step()    { printf "${WHITE}[▸]${NC} %s\n" "$1"; }
+header()  { printf "\n${BOLD}${CYAN}═══ %s ═══${NC}\n\n" "$1"; }
+divider() { printf "${CYAN}─────────────────────────────────${NC}\n"; }
+
+pause() {
+    printf "\nНажмите Enter для возврата..."
+    read -r
+}
+
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        error "Запустите скрипт от root: sudo bash $0"
+        exit 1
+    fi
+}
+
+check_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        error "Docker не установлен или недоступен в PATH!"
+        return 1
+    fi
+}
+
+check_command() {
+    local cmd="$1"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        error "Команда '$cmd' не найдена."
+        return 1
+    fi
+}
+
+backup_compose() {
+    if [ -f "$COMPOSE_FILE" ]; then
+        local backup="${COMPOSE_FILE}.bak.$(date +%F_%H%M%S)"
+        cp "$COMPOSE_FILE" "$backup"
+        info "Бэкап docker-compose.yml: $backup"
+    fi
+}
+
+add_remnanode_volume() {
+    local volume="$1"
+    local tmp_file
+
+    if grep -qF "$volume" "$COMPOSE_FILE"; then
+        success "Volume уже присутствует: $volume"
+        return 0
+    fi
+
+    if grep -qE '^[[:space:]]*-[[:space:]]*/dev/shm:/dev/shm:rw' "$COMPOSE_FILE"; then
+        sed -i "\|^[[:space:]]*-[[:space:]]*/dev/shm:/dev/shm:rw|a\\      - $volume" "$COMPOSE_FILE"
+        success "Volume добавлен: $volume"
+        return 0
+    fi
+
+    tmp_file="$(mktemp)"
+    awk -v volume_line="      - $volume" '
+        /^  remnanode:/ { in_remnanode=1 }
+        in_remnanode && /^  [A-Za-z0-9_-]+:/ && !/^  remnanode:/ { in_remnanode=0 }
+        in_remnanode && /^[[:space:]]*volumes:[[:space:]]*$/ && !added {
+            print
+            print volume_line
+            added=1
+            next
+        }
+        { print }
+        END {
+            if (!added) {
+                exit 42
+            }
+        }
+    ' "$COMPOSE_FILE" > "$tmp_file"
+
+    if [ $? -eq 0 ]; then
+        mv "$tmp_file" "$COMPOSE_FILE"
+        success "Volume добавлен: $volume"
+        return 0
+    fi
+
+    rm -f "$tmp_file"
+    error "Не удалось найти секцию volumes у сервиса remnanode."
+    return 1
+}
+
+restart_remnanode_compose() {
+    check_docker || return 1
+
+    if [ ! -d "$NODE_DIR" ]; then
+        error "Папка ноды не найдена: $NODE_DIR"
+        return 1
+    fi
+
+    step "Перезапуск контейнеров remnanode..."
+    if (cd "$NODE_DIR" && docker compose down >/dev/null 2>&1 && docker compose up -d >/dev/null 2>&1); then
+        success "Контейнеры remnanode успешно перезапущены."
+    else
+        error "Ошибка при перезапуске контейнеров remnanode."
+        return 1
+    fi
+}
+
+#===============================================================================
+# Функции Remnawave Node Agent Log Fix
+#===============================================================================
+fix_logs() {
+    header "🔧 Исправление логов в RemnaNode"
+    check_docker || { pause; return; }
+
+    if [ ! -f "$COMPOSE_FILE" ]; then
+        error "Файл $COMPOSE_FILE не найден!"
+        warn "Проверьте путь к ноде: $NODE_DIR"
+        pause
+        return
+    fi
+
+    info "Создание директории: $LOG_DIR"
+    mkdir -p "$LOG_DIR"
+    chmod 755 "$LOG_DIR"
+    touch "$LOG_DIR/access.log" "$LOG_DIR/error.log"
+    chmod 644 "$LOG_DIR"/*.log
+    success "Директория готова"
+
+    backup_compose
+    add_remnanode_volume "/var/log/remnanode:/var/log/remnanode:rw" || { pause; return; }
+
+    info "Перезапуск сервисов..."
+    restart_remnanode_compose
+    if [ -d "$AGENT_DIR" ]; then
+        (cd "$AGENT_DIR" && docker compose restart >/dev/null 2>&1)
+    fi
+    success "Сервисы перезапущены"
+
+    info "Проверка логов (ожидание 8 сек)..."
+    sleep 8
+    if [ -s "$LOG_DIR/access.log" ]; then
+        success "Лог-файл заполняется! Агент собирает IP."
+        printf "\n${GREEN}Последние 3 записи:${NC}\n"
+        divider
+        tail -n 3 "$LOG_DIR/access.log"
+        divider
+    else
+        warn "Файл пока пуст."
+        printf "   1. В панели не применён конфиг с loglevel: 'info'\n"
+        printf "   2. Нет активных подключений\n"
+    fi
+    pause
+}
+
+check_status() {
+    header "📊 Информация о логах"
+
+    printf "${BOLD}📁 Лог-файл:${NC}\n"
+    divider
+    if [ -f "$LOG_DIR/access.log" ]; then
+        local size
+        local lines
+        size=$(du -h "$LOG_DIR/access.log" 2>/dev/null | cut -f1)
+        lines=$(wc -l < "$LOG_DIR/access.log" 2>/dev/null)
+        success "$LOG_DIR/access.log ($size, $lines строк)"
+        printf "\n${CYAN}Последние 5 записей:${NC}\n"
+        tail -n 5 "$LOG_DIR/access.log" 2>/dev/null || printf "(пусто)\n"
+    else
+        warn "Файл не найден"
+    fi
+
+    printf "\n${BOLD}Занято места:${NC}\n"
+    divider
+    if [ -d "$LOG_DIR" ]; then
+        du -sh "$LOG_DIR" 2>/dev/null
+        ls -lh "$LOG_DIR"/*.log* 2>/dev/null | awk '{print "  " $9 " → " $5}'
+    fi
+
+    printf "\n"
+    divider
+    pause
+}
+
+restart_node() {
+    header "🔄 Перезапуск ноды"
+    check_docker || { pause; return; }
+
+    warn "Это прервёт подключения на ~5-10 секунд!"
+    printf "\n"
+    read -rp "Продолжить? (y/N): " reply
+    if [[ $reply =~ ^[Yy]$ ]]; then
+        restart_remnanode_compose
+    else
+        info "Отменено"
+    fi
+    pause
+}
+
+restart_agent() {
+    header "🔄 Перезапуск агента"
+    check_docker || { pause; return; }
+
+    if [ -d "$AGENT_DIR" ]; then
+        if (cd "$AGENT_DIR" && docker compose restart >/dev/null 2>&1); then
+            success "Агент перезапущен"
+        else
+            error "Ошибка при перезапуске агента"
+        fi
+    else
+        error "Папка агента не найдена: $AGENT_DIR"
+    fi
+    pause
+}
+
+restore_backup() {
+    header "↩️ Восстановление из бэкапа"
+    local backups=()
+    local num
+
+    mapfile -t backups < <(ls -t "${COMPOSE_FILE}.bak."* 2>/dev/null)
+    if [ ${#backups[@]} -eq 0 ]; then
+        warn "Бэкапы не найдены"
+        pause
+        return
+    fi
+
+    printf "Доступные бэкапы:\n"
+    divider
+    for i in "${!backups[@]}"; do
+        printf "  %d) %s\n" "$((i + 1))" "${backups[$i]}"
+    done
+    divider
+
+    read -rp "Выберите номер (0 для отмены): " num
+    if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -gt 0 ] && [ "$num" -le "${#backups[@]}" ]; then
+        warn "Восстановление: ${backups[$((num - 1))]}"
+        read -rp "Подтвердить? (y/N): " reply
+        if [[ $reply =~ ^[Yy]$ ]]; then
+            cp "${backups[$((num - 1))]}" "$COMPOSE_FILE"
+            success "Восстановлено! Перезапустите ноду."
+        fi
+    fi
+    pause
+}
+
+setup_logrotate() {
+    header "🗂️ Настройка ротации логов"
+    if [ -f "$ROTATE_CONF" ]; then
+        printf "${CYAN}Текущий конфиг:${NC}\n\n"
+        cat "$ROTATE_CONF"
+        printf "\n"
+    fi
+
+    printf "Выберите профиль:\n"
+    printf "  ${GREEN}1)${NC} 🟢 Малая нода (<100) — ежедневно, 7 дней\n"
+    printf "  ${GREEN}2)${NC} 🟡 Средняя (100-500) — ежедневно, 3 дня\n"
+    printf "  ${GREEN}3)${NC} 🔴 Высокая (>500) — по размеру 100МБ\n"
+    printf "  ${GREEN}4)${NC} ⚙️  Кастомный (nano)\n"
+    printf "  ${RED}0)${NC} Отмена\n\n"
+    read -rp "Выбор: " profile
+
+    mkdir -p "$(dirname "$ROTATE_CONF")"
+    case $profile in
+        1)
+            cat > "$ROTATE_CONF" << 'EOF'
+/var/log/remnanode/*.log {
+    daily
+    rotate 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 644 root root
+    dateext
+}
+EOF
+            success "Профиль 'Малая' применён"
+            ;;
+        2)
+            cat > "$ROTATE_CONF" << 'EOF'
+/var/log/remnanode/*.log {
+    daily
+    rotate 3
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 644 root root
+    dateext
+}
+EOF
+            success "Профиль 'Средняя' применён"
+            ;;
+        3)
+            cat > "$ROTATE_CONF" << 'EOF'
+/var/log/remnanode/access.log {
+    size 100M
+    rotate 5
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 644 root root
+}
+EOF
+            success "Профиль 'Высокая' применён"
+            ;;
+        4)
+            info "Редактирование: $ROTATE_CONF"
+            nano "$ROTATE_CONF"
+            success "Сохранено"
+            ;;
+        0)
+            return
+            ;;
+        *)
+            warn "Неверный выбор"
+            sleep 1
+            return
+            ;;
+    esac
+
+    info "Проверка синтаксиса..."
+    if logrotate -d "$ROTATE_CONF" >/dev/null 2>&1; then
+        success "Конфиг валиден"
+    else
+        error "Ошибка в конфиге! Подробности:"
+        logrotate -d "$ROTATE_CONF" 2>&1 | head -8
+    fi
+    pause
+}
+
+collect_debug() {
+    header "🔍 Сбор диагностики"
+    check_docker || { pause; return; }
+
+    local debug_dir="/tmp/remnawave-debug-$(date +%F_%H%M%S)"
+    local archive="${debug_dir}.tar.gz"
+
+    mkdir -p "$debug_dir"
+    info "Сбор в: $debug_dir"
+    [ -f "$COMPOSE_FILE" ] && cp "$COMPOSE_FILE" "$debug_dir/"
+    if [ -d "$NODE_DIR" ]; then
+        (cd "$NODE_DIR" && docker compose logs --tail 100 > "$debug_dir/node.log" 2>&1)
+    fi
+    if [ -d "$AGENT_DIR" ]; then
+        (cd "$AGENT_DIR" && docker compose logs --tail 100 > "$debug_dir/agent.log" 2>&1)
+    fi
+    if [ -d "$LOG_DIR" ]; then
+        mkdir -p "$debug_dir/remnanode-logs"
+        [ -f "$LOG_DIR/access.log" ] && cp "$LOG_DIR/access.log" "$debug_dir/remnanode-logs/"
+        [ -f "$LOG_DIR/error.log" ] && cp "$LOG_DIR/error.log" "$debug_dir/remnanode-logs/"
+    fi
+
+    tar -czf "$archive" -C "$(dirname "$debug_dir")" "$(basename "$debug_dir")" 2>/dev/null
+    success "Архив: $archive"
+    ls -lh "$archive"
+    pause
+}
+
+cleanup_logs() {
+    header "🧹 Очистка логов"
+    printf "  ${GREEN}1)${NC} Удалить *.gz старше 7 дней\n"
+    printf "  ${GREEN}2)${NC} Удалить ВСЕ архивы\n"
+    printf "  ${GREEN}3)${NC} Очистить текущий access.log\n"
+    printf "  ${RED}0)${NC} Отмена\n\n"
+    read -rp "Выбор: " action
+
+    case $action in
+        1)
+            find "$LOG_DIR" -name "*.gz" -mtime +7 -delete 2>/dev/null
+            success "Очищено"
+            ;;
+        2)
+            find "$LOG_DIR" -name "*.log.*" -delete 2>/dev/null
+            success "Удалено"
+            ;;
+        3)
+            : > "$LOG_DIR/access.log" 2>/dev/null
+            success "Обнулено"
+            ;;
+        *)
+            info "Отменено"
+            ;;
+    esac
+    pause
+}
+
+install_geofile() {
+    local repo_name="$1"
+    local geosite_url="$2"
+    local geoip_url="$3"
+    local files_downloaded=0
+
+    header "Установка geofiles: ${repo_name}"
+    check_command wget || return 1
+    mkdir -p "$XRAY_SHARE_DIR"
+
+    if [ "$geosite_url" != "none" ]; then
+        local geosite_filename="${repo_name}-geosite.dat"
+        step "Скачивание geosite.dat..."
+        if ! wget -q --show-progress -O "${XRAY_SHARE_DIR}/${geosite_filename}" "$geosite_url"; then
+            error "Ошибка при скачивании geosite.dat."
+            return 1
+        fi
+        files_downloaded=$((files_downloaded + 1))
+        (
+            crontab -l 2>/dev/null | grep -v "${geosite_filename}" || true
+            printf "0 0 * * * /usr/bin/wget -q -O %s/%s %s\n" "$XRAY_SHARE_DIR" "$geosite_filename" "$geosite_url"
+        ) | crontab -
+        success "geosite.dat скачан → ${XRAY_SHARE_DIR}/${geosite_filename}"
+        success "Задача добавлена в crontab (ежедневное обновление в 00:00)"
+    fi
+
+    if [ "$geoip_url" != "none" ]; then
+        local geoip_filename="${repo_name}-geoip.dat"
+        step "Скачивание geoip.dat..."
+        if ! wget -q --show-progress -O "${XRAY_SHARE_DIR}/${geoip_filename}" "$geoip_url"; then
+            error "Ошибка при скачивании geoip.dat."
+            return 1
+        fi
+        files_downloaded=$((files_downloaded + 1))
+        (
+            crontab -l 2>/dev/null | grep -v "${geoip_filename}" || true
+            printf "0 0 * * * /usr/bin/wget -q -O %s/%s %s\n" "$XRAY_SHARE_DIR" "$geoip_filename" "$geoip_url"
+        ) | crontab -
+        success "geoip.dat скачан → ${XRAY_SHARE_DIR}/${geoip_filename}"
+        success "Задача добавлена в crontab (ежедневное обновление в 00:00)"
+    fi
+
+    if [ "$files_downloaded" -eq 0 ]; then
+        error "Не указаны URL для скачивания файлов."
+        return 1
+    fi
+
+    if [ -f "$COMPOSE_FILE" ]; then
+        printf "\n"
+        step "Добавление volumes в docker-compose.yml..."
+        backup_compose
+
+        if [ "$geosite_url" != "none" ]; then
+            local geosite_filename="${repo_name}-geosite.dat"
+            add_remnanode_volume "${XRAY_SHARE_DIR}/${geosite_filename}:/usr/local/bin/${geosite_filename}" || return 1
+        fi
+        if [ "$geoip_url" != "none" ]; then
+            local geoip_filename="${repo_name}-geoip.dat"
+            add_remnanode_volume "${XRAY_SHARE_DIR}/${geoip_filename}:/usr/local/bin/${geoip_filename}" || return 1
+        fi
+
+        restart_remnanode_compose
+    else
+        printf "\n"
+        warn "Файл docker-compose.yml не найден по пути ${COMPOSE_FILE}"
+        info "Пропуск настройки volume и перезапуска контейнеров."
+    fi
+}
+
+uninstall_geofile() {
+    local repo_name="$1"
+    local has_geosite="$2"
+    local has_geoip="$3"
+    local files_removed=0
+    local modified=false
+
+    header "Удаление geofiles: ${repo_name}"
+
+    if [ "$has_geosite" = "true" ]; then
+        local geosite_filename="${repo_name}-geosite.dat"
+        local geosite_path="${XRAY_SHARE_DIR}/${geosite_filename}"
+        if [ -f "$geosite_path" ]; then
+            step "Удаление файла: ${geosite_path}"
+            rm -f "$geosite_path"
+            files_removed=$((files_removed + 1))
+            success "Файл ${geosite_filename} удалён."
+        else
+            info "Файл ${geosite_filename} не найден, пропуск."
+        fi
+        step "Удаление задачи из crontab для ${geosite_filename}..."
+        (crontab -l 2>/dev/null | grep -v "${geosite_filename}" || true) | crontab -
+        success "Задача для ${geosite_filename} удалена из crontab."
+    fi
+
+    if [ "$has_geoip" = "true" ]; then
+        local geoip_filename="${repo_name}-geoip.dat"
+        local geoip_path="${XRAY_SHARE_DIR}/${geoip_filename}"
+        if [ -f "$geoip_path" ]; then
+            step "Удаление файла: ${geoip_path}"
+            rm -f "$geoip_path"
+            files_removed=$((files_removed + 1))
+            success "Файл ${geoip_filename} удалён."
+        else
+            info "Файл ${geoip_filename} не найден, пропуск."
+        fi
+        step "Удаление задачи из crontab для ${geoip_filename}..."
+        (crontab -l 2>/dev/null | grep -v "${geoip_filename}" || true) | crontab -
+        success "Задача для ${geoip_filename} удалена из crontab."
+    fi
+
+    if [ "$files_removed" -eq 0 ]; then
+        info "Нет файлов для удаления."
+    fi
+
+    if [ -f "$COMPOSE_FILE" ]; then
+        printf "\n"
+        step "Удаление volumes из docker-compose.yml..."
+        backup_compose
+
+        if [ "$has_geosite" = "true" ]; then
+            local geosite_filename="${repo_name}-geosite.dat"
+            if grep -qF "$geosite_filename" "$COMPOSE_FILE"; then
+                sed -i "\|${geosite_filename}|d" "$COMPOSE_FILE"
+                modified=true
+                success "Volume для ${geosite_filename} удалён."
+            fi
+        fi
+
+        if [ "$has_geoip" = "true" ]; then
+            local geoip_filename="${repo_name}-geoip.dat"
+            if grep -qF "$geoip_filename" "$COMPOSE_FILE"; then
+                sed -i "\|${geoip_filename}|d" "$COMPOSE_FILE"
+                modified=true
+                success "Volume для ${geoip_filename} удалён."
+            fi
+        fi
+
+        if [ "$modified" = true ]; then
+            restart_remnanode_compose
+        else
+            info "Volumes не найдены в docker-compose.yml."
+        fi
+    else
+        printf "\n"
+        warn "Файл docker-compose.yml не найден по пути ${COMPOSE_FILE}"
+        info "Пропуск удаления volumes."
+    fi
+
+    success "Удаление geofiles завершено."
+}
+
+install_roscomvpn_geofiles() {
+    install_geofile "roscomvpn" \
+        "https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat" \
+        "https://github.com/hydraponique/roscomvpn-geoip/releases/latest/download/geoip.dat"
+}
+
+uninstall_roscomvpn_geofiles() {
+    uninstall_geofile "roscomvpn" "true" "true"
+}
+
+install_loyalsoldier_geofiles() {
+    install_geofile "loyalsoldier" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" \
+        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+}
+
+uninstall_loyalsoldier_geofiles() {
+    uninstall_geofile "loyalsoldier" "true" "true"
+}
+
+install_xray_routing_geofiles() {
+    install_geofile "xray-routing" \
+        "https://raw.githubusercontent.com/Davoyan/xray-routing/main/release/geosite.dat" \
+        "https://raw.githubusercontent.com/Davoyan/xray-routing/main/release/geoip.dat"
+}
+
+uninstall_xray_routing_geofiles() {
+    uninstall_geofile "xray-routing" "true" "true"
+}
+
+install_all_geofiles() {
+    header "Установка всех geofiles"
+    install_roscomvpn_geofiles
+    printf "\n"
+    divider
+    printf "\n"
+    install_loyalsoldier_geofiles
+    printf "\n"
+    divider
+    printf "\n"
+    install_xray_routing_geofiles
+}
+
+uninstall_all_geofiles() {
+    header "Удаление всех geofiles"
+    uninstall_roscomvpn_geofiles
+    printf "\n"
+    divider
+    printf "\n"
+    uninstall_loyalsoldier_geofiles
+    printf "\n"
+    divider
+    printf "\n"
+    uninstall_xray_routing_geofiles
+}
+
+#===============================================================================
+# Меню
+#===============================================================================
+show_geofiles_menu() {
+    clear
+    printf "${BOLD}${CYAN}"
+    printf "╔════════════════════════════════════════════╗\n"
+    printf "║  RemnaSuper — geofiles                    ║\n"
+    printf "╚════════════════════════════════════════════╝\n"
+    printf "${NC}\n"
+    printf "  ${GREEN}УСТАНОВКА${NC}\n"
+    printf "  ${GREEN}1)${NC} Установить roscomvpn-geofiles\n"
+    printf "  ${GREEN}2)${NC} Установить Loyalsoldier-geofiles\n"
+    printf "  ${GREEN}3)${NC} Установить xray-routing geofiles\n"
+    printf "  ${GREEN}4)${NC} Установить все geofiles\n\n"
+    printf "  ${RED}УДАЛЕНИЕ${NC}\n"
+    printf "  ${RED}5)${NC} Удалить roscomvpn-geofiles\n"
+    printf "  ${RED}6)${NC} Удалить Loyalsoldier-geofiles\n"
+    printf "  ${RED}7)${NC} Удалить xray-routing geofiles\n"
+    printf "  ${RED}8)${NC} Удалить все geofiles\n\n"
+    printf "  ${BLUE}0)${NC} Назад в главное меню\n\n"
+    divider
+    printf "Ваш выбор [0-8]: "
+}
+
+geofiles_menu() {
+    local choice
+    while true; do
+        show_geofiles_menu
+        read -r choice
+        case $choice in
+            1) install_roscomvpn_geofiles; pause ;;
+            2) install_loyalsoldier_geofiles; pause ;;
+            3) install_xray_routing_geofiles; pause ;;
+            4) install_all_geofiles; pause ;;
+            5) uninstall_roscomvpn_geofiles; pause ;;
+            6) uninstall_loyalsoldier_geofiles; pause ;;
+            7) uninstall_xray_routing_geofiles; pause ;;
+            8) uninstall_all_geofiles; pause ;;
+            0) return ;;
+            *) warn "Неверный выбор"; sleep 1 ;;
+        esac
+    done
+}
+
+run_node_accelerator() {
+    header "Выполнение Node Accelerator"
+
+    check_command curl || { pause; return; }
+    check_command sudo || { pause; return; }
+
+    step "Запуск Node Accelerator..."
+    curl -fsSL https://raw.githubusercontent.com/jestivald/node-accelerator/main/install.sh | sudo bash -s all
+
+    local pipe_status=("${PIPESTATUS[@]}")
+    local curl_exit="${pipe_status[0]}"
+    local bash_exit="${pipe_status[1]}"
+    if [ "$curl_exit" -eq 0 ] && [ "$bash_exit" -eq 0 ]; then
+        success "Node Accelerator выполнен."
+    else
+        error "Node Accelerator завершился с ошибкой. curl: $curl_exit, bash: $bash_exit"
+    fi
+
+    pause
+}
+
+exit_menu() {
+    header "❌ Завершение"
+    success "Удачи!"
+    exit 0
+}
+
+show_menu() {
+    clear
+    printf "${BOLD}${CYAN}"
+    printf "╔════════════════════════════════════════════╗\n"
+    printf "║  RemnaSuper — интерактивное меню          ║\n"
+    printf "╚════════════════════════════════════════════╝\n"
+    printf "${NC}\n"
+    printf "Выберите действие:\n\n"
+    printf "  ${GREEN}📜 ЛОГИ${NC}\n"
+    printf "  ${GREEN}1)${NC} 🔧 Исправить логи в RemnaNode\n"
+    printf "  ${GREEN}2)${NC} 📊 Информация о логах\n"
+    printf "  ${GREEN}3)${NC} 🗂️  Настроить logrotate\n"
+    printf "  ${GREEN}4)${NC} 🔍 Собрать логи\n"
+    printf "  ${GREEN}5)${NC} 🧹 Очистить старые логи\n\n"
+    printf "  ${GREEN}🔄 УПРАВЛЕНИЕ${NC}\n"
+    printf "  ${GREEN}6)${NC} 🔄 Перезапустить ноду\n"
+    printf "  ${GREEN}7)${NC} 🔄 Перезапустить агента\n"
+    printf "  ${GREEN}8)${NC} ↩️  Восстановить из бэкапа\n\n"
+    printf "  ${GREEN}🧰 ПРОЧЕЕ${NC}\n"
+    printf "  ${GREEN}9)${NC} 🌍 Установка/удаление geofiles\n"
+    printf "  ${GREEN}10)${NC} 🚀 Выполнить Node Accelerator\n\n"
+    printf "  ${RED}0)${NC} ❌ Выход\n\n"
+    divider
+    printf "Ваш выбор [0-10]: "
+}
+
+main_menu() {
+    local choice
+    while true; do
+        show_menu
+        read -r choice
+        case $choice in
+            1) fix_logs ;;
+            2) check_status ;;
+            3) setup_logrotate ;;
+            4) collect_debug ;;
+            5) cleanup_logs ;;
+            6) restart_node ;;
+            7) restart_agent ;;
+            8) restore_backup ;;
+            9) geofiles_menu ;;
+            10) run_node_accelerator ;;
+            0) exit_menu ;;
+            *) warn "Неверный выбор"; sleep 1 ;;
+        esac
+    done
+}
+
+main() {
+    check_root
+    header "Запуск"
+    info "Проверка окружения..."
+    sleep 1
+    main_menu
+}
+
+main "$@"
