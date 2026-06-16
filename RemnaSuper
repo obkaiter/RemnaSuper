@@ -303,6 +303,14 @@ install_remnawave_reverse_proxy() {
     pause
 }
 
+view_errors() {
+    header "Просмотр ошибок"
+    check_docker || { pause; return; }
+
+    docker exec -it remnanode tail -n +1 -f /var/log/supervisor/xray.out.log
+    pause
+}
+
 setup_logrotate() {
     header "🗂️ Настройка ротации логов"
     if [ -f "$ROTATE_CONF" ]; then
@@ -744,13 +752,14 @@ show_menu() {
     printf "  ${GREEN}7)${NC} 🔄 Перезапустить агента\n"
     printf "  ${GREEN}8)${NC} ↩️ Восстановить из бэкапа\n"
     printf "  ${GREEN}9)${NC} 🔄 apt update && apt upgrade\n"
-    printf "  ${GREEN}10)${NC} 🔧 Установить remnawave-reverse-proxy\n\n"
+    printf "  ${GREEN}10)${NC} 🔧 Установить remnawave-reverse-proxy\n"
+    printf "  ${GREEN}11)${NC} 🔎 Просмотр ошибок\n\n"
     printf "  ${GREEN}🧰 ПРОЧЕЕ${NC}\n"
-    printf "  ${GREEN}11)${NC} 🌍 Установка/удаление geofiles\n"
-    printf "  ${GREEN}12)${NC} 🚀 Выполнить Node Accelerator\n\n"
+    printf "  ${GREEN}12)${NC} 🌍 Установка/удаление geofiles\n"
+    printf "  ${GREEN}13)${NC} 🚀 Выполнить Node Accelerator\n\n"
     printf "  ${RED}0)${NC} ❌ Выход\n\n"
     divider
-    printf "Ваш выбор [0-12]: "
+    printf "Ваш выбор [0-13]: "
 }
 
 main_menu() {
@@ -769,8 +778,9 @@ main_menu() {
             8) restore_backup ;;
             9) apt_update_upgrade ;;
             10) install_remnawave_reverse_proxy ;;
-            11) geofiles_menu ;;
-            12) run_node_accelerator ;;
+            11) view_errors ;;
+            12) geofiles_menu ;;
+            13) run_node_accelerator ;;
             0) exit_menu ;;
             *) warn "Неверный выбор"; sleep 1 ;;
         esac
