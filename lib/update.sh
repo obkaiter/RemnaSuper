@@ -11,6 +11,35 @@ fetch_remote_version() {
     curl -fsSL --connect-timeout 5 --max-time 10 "$GITHUB_RAW_BASE/VERSION" | tr -d '[:space:]'
 }
 
+prepare_install_dir() {
+    local legacy_base legacy_path suffix=0
+
+    if [ -d "$INSTALL_DIR" ] && [ ! -L "$INSTALL_DIR" ]; then
+        return 0
+    fi
+
+    if [ -e "$INSTALL_DIR" ] || [ -L "$INSTALL_DIR" ]; then
+        legacy_base="${INSTALL_DIR}.legacy.$(date +%Y%m%d%H%M%S)"
+        legacy_path="$legacy_base"
+
+        while [ -e "$legacy_path" ] || [ -L "$legacy_path" ]; do
+            suffix=$((suffix + 1))
+            legacy_path="${legacy_base}.${suffix}"
+        done
+
+        info "${INSTALL_DIR} не является каталогом; перенос в ${legacy_path}."
+        if ! mv -- "$INSTALL_DIR" "$legacy_path"; then
+            error "Не удалось сохранить существующий ${INSTALL_DIR}."
+            return 1
+        fi
+    fi
+
+    if ! mkdir -p "$INSTALL_DIR"; then
+        error "Не удалось создать каталог установки: ${INSTALL_DIR}"
+        return 1
+    fi
+}
+
 install_from_dir() {
     local src_dir="$1"
 
@@ -24,7 +53,7 @@ install_from_dir() {
         return 1
     fi
 
-    mkdir -p "$INSTALL_DIR"
+    prepare_install_dir || return 1
     rm -rf "$INSTALL_DIR/lib"
     cp -a "$src_dir/lib" "$INSTALL_DIR/"
     install -m 755 "$src_dir/RemnaSuper" "$INSTALL_DIR/RemnaSuper"

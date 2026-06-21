@@ -27,6 +27,35 @@ if [ "$INSTALL_DIR" != "/opt/RemnaSuper" ]; then
     exit 1
 fi
 
+prepare_install_dir() {
+    local legacy_base legacy_path suffix=0
+
+    if [ -d "$INSTALL_DIR" ] && [ ! -L "$INSTALL_DIR" ]; then
+        return 0
+    fi
+
+    if [ -e "$INSTALL_DIR" ] || [ -L "$INSTALL_DIR" ]; then
+        legacy_base="${INSTALL_DIR}.legacy.$(date +%Y%m%d%H%M%S)"
+        legacy_path="$legacy_base"
+
+        while [ -e "$legacy_path" ] || [ -L "$legacy_path" ]; do
+            suffix=$((suffix + 1))
+            legacy_path="${legacy_base}.${suffix}"
+        done
+
+        printf "[i] %s уже существует и не является каталогом. Перенос в %s\n" "$INSTALL_DIR" "$legacy_path"
+        if ! mv -- "$INSTALL_DIR" "$legacy_path"; then
+            printf "[x] Не удалось сохранить существующий %s.\n" "$INSTALL_DIR"
+            return 1
+        fi
+    fi
+
+    if ! mkdir -p "$INSTALL_DIR"; then
+        printf "[x] Не удалось создать каталог установки: %s\n" "$INSTALL_DIR"
+        return 1
+    fi
+}
+
 tmp_dir="$(mktemp -d)"
 archive="$tmp_dir/remnasuper.tar.gz"
 src_root="$tmp_dir/source"
@@ -49,7 +78,7 @@ if [ -z "$src_dir" ] || [ ! -f "$src_dir/RemnaSuper" ] || [ ! -d "$src_dir/lib" 
 fi
 
 printf "[>] Установка в %s...\n" "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR"
+prepare_install_dir
 rm -rf "$INSTALL_DIR/lib"
 cp -a "$src_dir/lib" "$INSTALL_DIR/"
 install -m 755 "$src_dir/RemnaSuper" "$INSTALL_DIR/RemnaSuper"
