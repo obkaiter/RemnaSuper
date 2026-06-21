@@ -10,20 +10,18 @@ show_geofiles_menu() {
     show_brand "Geofiles"
 
     section "Установка"
-    menu_item 1 "Установить roscomvpn-geofiles"
-    menu_item 2 "Установить Loyalsoldier-geofiles"
-    menu_item 3 "Установить xray-routing geofiles"
-    menu_item 4 "Установить все geofiles"
+    menu_item 1 "Установить Loyalsoldier-geofiles"
+    menu_item 2 "Установить xray-routing geofiles"
+    menu_item 3 "Установить все geofiles"
 
     section "Удаление"
-    menu_danger_item 5 "Удалить roscomvpn-geofiles"
-    menu_danger_item 6 "Удалить Loyalsoldier-geofiles"
-    menu_danger_item 7 "Удалить xray-routing geofiles"
-    menu_danger_item 8 "Удалить все geofiles"
+    menu_danger_item 4 "Удалить Loyalsoldier-geofiles"
+    menu_danger_item 5 "Удалить xray-routing geofiles"
+    menu_danger_item 6 "Удалить все geofiles"
 
     section "Навигация"
     menu_back_item
-    prompt_choice "0-8"
+    prompt_choice "0-6"
 }
 
 geofiles_menu() {
@@ -33,14 +31,12 @@ geofiles_menu() {
         show_geofiles_menu
         read -r choice
         case $choice in
-            1) run_and_pause install_roscomvpn_geofiles ;;
-            2) run_and_pause install_loyalsoldier_geofiles ;;
-            3) run_and_pause install_xray_routing_geofiles ;;
-            4) run_and_pause install_all_geofiles ;;
-            5) run_and_pause uninstall_roscomvpn_geofiles ;;
-            6) run_and_pause uninstall_loyalsoldier_geofiles ;;
-            7) run_and_pause uninstall_xray_routing_geofiles ;;
-            8) run_and_pause uninstall_all_geofiles ;;
+            1) run_and_pause install_loyalsoldier_geofiles ;;
+            2) run_and_pause install_xray_routing_geofiles ;;
+            3) run_and_pause install_all_geofiles ;;
+            4) run_and_pause uninstall_loyalsoldier_geofiles ;;
+            5) run_and_pause uninstall_xray_routing_geofiles ;;
+            6) run_and_pause uninstall_all_geofiles ;;
             0) return ;;
             *) warn "Неверный выбор."; sleep 1 ;;
         esac

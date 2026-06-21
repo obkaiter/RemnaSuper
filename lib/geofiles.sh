@@ -201,16 +201,6 @@ uninstall_geofile() {
     success "Удаление geofiles завершено."
 }
 
-install_roscomvpn_geofiles() {
-    install_geofile "roscomvpn" \
-        "https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat" \
-        "https://github.com/hydraponique/roscomvpn-geoip/releases/latest/download/geoip.dat"
-}
-
-uninstall_roscomvpn_geofiles() {
-    uninstall_geofile "roscomvpn" "true" "true"
-}
-
 install_loyalsoldier_geofiles() {
     install_geofile "loyalsoldier" \
         "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat" \
@@ -233,8 +223,6 @@ uninstall_xray_routing_geofiles() {
 
 install_all_geofiles() {
     header "Установка всех geofiles"
-    install_roscomvpn_geofiles
-    divider
     install_loyalsoldier_geofiles
     divider
     install_xray_routing_geofiles
@@ -242,8 +230,6 @@ install_all_geofiles() {
 
 uninstall_all_geofiles() {
     header "Удаление всех geofiles"
-    uninstall_roscomvpn_geofiles
-    divider
     uninstall_loyalsoldier_geofiles
     divider
     uninstall_xray_routing_geofiles
