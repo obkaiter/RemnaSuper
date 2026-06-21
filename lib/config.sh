@@ -9,7 +9,7 @@ else
 fi
 
 INSTALL_DIR="/opt/RemnaSuper"
-COMMAND_LINK="/usr/local/bin/RemnaSuper"
+COMMAND_LINK="/usr/local/bin/rs"
 GITHUB_REPO="SP1K33/RemnaSuper"
 GITHUB_BRANCH="${REMNASUPER_BRANCH:-main}"
 GITHUB_RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}"

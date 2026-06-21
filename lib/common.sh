@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 check_root() {
-    local command_name="${1:-RemnaSuper}"
+    local command_name="${1:-rs}"
 
     if [ "$EUID" -ne 0 ]; then
         error "Запустите от root: sudo $command_name"

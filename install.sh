@@ -2,7 +2,7 @@
 set -euo pipefail
 
 INSTALL_DIR="/opt/RemnaSuper"
-COMMAND_LINK="/usr/local/bin/RemnaSuper"
+COMMAND_LINK="/usr/local/bin/rs"
 GITHUB_REPO="SP1K33/RemnaSuper"
 GITHUB_BRANCH="${REMNASUPER_BRANCH:-main}"
 GITHUB_TARBALL_URL="https://codeload.github.com/${GITHUB_REPO}/tar.gz/refs/heads/${GITHUB_BRANCH}"
@@ -89,4 +89,4 @@ install -m 644 "$src_dir/VERSION" "$INSTALL_DIR/VERSION"
 ln -sfn "$INSTALL_DIR/RemnaSuper" "$COMMAND_LINK"
 
 printf "[ok] Установлено.\n"
-printf "[i] Запуск из любого места: RemnaSuper\n"
+printf "[i] Запуск из любого места: rs\n"
