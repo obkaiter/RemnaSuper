@@ -63,8 +63,8 @@ restore_backup() {
     pause
 }
 
-apt_update_upgrade() {
-    header "apt update && apt upgrade"
+initial_setup() {
+    header "Первоначальная настройка"
     check_command apt-get || { pause; return; }
     check_command sudo || { pause; return; }
 
@@ -76,10 +76,18 @@ apt_update_upgrade() {
     fi
 
     step "apt-get upgrade..."
-    if sudo DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" upgrade -o com.ubuntu.ipt.needrestart=0; then
-        success "apt update && apt upgrade выполнены."
-    else
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" upgrade -o com.ubuntu.ipt.needrestart=0; then
         error "apt-get upgrade завершился с ошибкой."
+        pause
+        return
+    fi
+    success "apt update && apt upgrade выполнены."
+
+    step "Установка cron, mc и wget..."
+    if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cron mc wget; then
+        success "cron, mc и wget установлены."
+    else
+        error "Не удалось установить cron, mc и wget."
     fi
 
     pause
