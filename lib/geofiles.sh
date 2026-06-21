@@ -213,8 +213,8 @@ uninstall_roscomvpn_geofiles() {
 
 install_loyalsoldier_geofiles() {
     install_geofile "loyalsoldier" \
-        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" \
-        "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+        "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat" \
+        "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat"
 }
 
 uninstall_loyalsoldier_geofiles() {
