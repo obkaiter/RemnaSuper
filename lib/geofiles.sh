@@ -1,5 +1,53 @@
 #!/usr/bin/env bash
 
+download_geofile_safely() {
+    local url="$1"
+    local target="$2"
+    local tmp_file
+
+    if ! tmp_file="$(mktemp "${target}.tmp.XXXXXX")"; then
+        error "Не удалось создать временный файл для ${target}."
+        return 1
+    fi
+
+    if wget -q --show-progress -O "$tmp_file" "$url" \
+        && [ -s "$tmp_file" ] \
+        && chmod 0644 "$tmp_file" \
+        && mv -f "$tmp_file" "$target"; then
+        return 0
+    fi
+
+    rm -f "$tmp_file"
+    error "Не удалось безопасно обновить ${target}; существующий файл сохранён."
+    return 1
+}
+
+add_geofile_cron() {
+    local filename="$1"
+    local url="$2"
+    local target="${GEOFILES_DIR}/${filename}"
+
+    (
+        crontab -l 2>/dev/null | grep -vF "$filename" || true
+        printf "0 0 * * * tmp=\$(/usr/bin/mktemp '%s.tmp.XXXXXX') && /usr/bin/wget -q -O \"\$tmp\" '%s' && [ -s \"\$tmp\" ] && /bin/chmod 0644 \"\$tmp\" && /bin/mv -f \"\$tmp\" '%s' || { status=\$?; [ -z \"\$tmp\" ] || /bin/rm -f \"\$tmp\"; exit \"\$status\"; }\n" \
+            "$target" "$url" "$target"
+    ) | crontab -
+}
+
+migrate_legacy_geofile_volume() {
+    local filename="$1"
+    local legacy_volume="/opt/remnawave/xray/share/${filename}:/usr/local/bin/${filename}"
+    local current_volume="${GEOFILES_DIR}/${filename}:/usr/local/bin/${filename}"
+
+    if grep -qF "$legacy_volume" "$COMPOSE_FILE"; then
+        if ! sed -i "s|${legacy_volume}|${current_volume}|g" "$COMPOSE_FILE"; then
+            error "Не удалось перенести volume для ${filename} в ${GEOFILES_DIR}."
+            return 1
+        fi
+        success "Volume для ${filename} перенесён в ${GEOFILES_DIR}."
+    fi
+}
+
 install_geofile() {
     local repo_name="$1"
     local geosite_url="$2"
@@ -8,37 +56,37 @@ install_geofile() {
 
     header "Установка geofiles: ${repo_name}"
     check_command wget || return 1
-    mkdir -p "$XRAY_SHARE_DIR"
+    mkdir -p "$GEOFILES_DIR"
 
     if [ "$geosite_url" != "none" ]; then
         local geosite_filename="${repo_name}-geosite.dat"
         step "Скачивание geosite.dat..."
-        if ! wget -q --show-progress -O "${XRAY_SHARE_DIR}/${geosite_filename}" "$geosite_url"; then
+        if ! download_geofile_safely "$geosite_url" "${GEOFILES_DIR}/${geosite_filename}"; then
             error "Ошибка при скачивании geosite.dat."
             return 1
         fi
         files_downloaded=$((files_downloaded + 1))
-        (
-            crontab -l 2>/dev/null | grep -v "${geosite_filename}" || true
-            printf "0 0 * * * /usr/bin/wget -q -O %s/%s %s\n" "$XRAY_SHARE_DIR" "$geosite_filename" "$geosite_url"
-        ) | crontab -
-        success "geosite.dat скачан: ${XRAY_SHARE_DIR}/${geosite_filename}"
+        if ! add_geofile_cron "$geosite_filename" "$geosite_url"; then
+            error "Не удалось добавить задачу обновления ${geosite_filename} в crontab."
+            return 1
+        fi
+        success "geosite.dat скачан: ${GEOFILES_DIR}/${geosite_filename}"
         success "Задача добавлена в crontab: ежедневное обновление в 00:00."
     fi
 
     if [ "$geoip_url" != "none" ]; then
         local geoip_filename="${repo_name}-geoip.dat"
         step "Скачивание geoip.dat..."
-        if ! wget -q --show-progress -O "${XRAY_SHARE_DIR}/${geoip_filename}" "$geoip_url"; then
+        if ! download_geofile_safely "$geoip_url" "${GEOFILES_DIR}/${geoip_filename}"; then
             error "Ошибка при скачивании geoip.dat."
             return 1
         fi
         files_downloaded=$((files_downloaded + 1))
-        (
-            crontab -l 2>/dev/null | grep -v "${geoip_filename}" || true
-            printf "0 0 * * * /usr/bin/wget -q -O %s/%s %s\n" "$XRAY_SHARE_DIR" "$geoip_filename" "$geoip_url"
-        ) | crontab -
-        success "geoip.dat скачан: ${XRAY_SHARE_DIR}/${geoip_filename}"
+        if ! add_geofile_cron "$geoip_filename" "$geoip_url"; then
+            error "Не удалось добавить задачу обновления ${geoip_filename} в crontab."
+            return 1
+        fi
+        success "geoip.dat скачан: ${GEOFILES_DIR}/${geoip_filename}"
         success "Задача добавлена в crontab: ежедневное обновление в 00:00."
     fi
 
@@ -54,11 +102,13 @@ install_geofile() {
 
         if [ "$geosite_url" != "none" ]; then
             local geosite_filename="${repo_name}-geosite.dat"
-            add_remnanode_volume "${XRAY_SHARE_DIR}/${geosite_filename}:/usr/local/bin/${geosite_filename}" || return 1
+            migrate_legacy_geofile_volume "$geosite_filename" || return 1
+            add_remnanode_volume "${GEOFILES_DIR}/${geosite_filename}:/usr/local/bin/${geosite_filename}" || return 1
         fi
         if [ "$geoip_url" != "none" ]; then
             local geoip_filename="${repo_name}-geoip.dat"
-            add_remnanode_volume "${XRAY_SHARE_DIR}/${geoip_filename}:/usr/local/bin/${geoip_filename}" || return 1
+            migrate_legacy_geofile_volume "$geoip_filename" || return 1
+            add_remnanode_volume "${GEOFILES_DIR}/${geoip_filename}:/usr/local/bin/${geoip_filename}" || return 1
         fi
 
         restart_remnanode_compose
@@ -80,7 +130,7 @@ uninstall_geofile() {
 
     if [ "$has_geosite" = "true" ]; then
         local geosite_filename="${repo_name}-geosite.dat"
-        local geosite_path="${XRAY_SHARE_DIR}/${geosite_filename}"
+        local geosite_path="${GEOFILES_DIR}/${geosite_filename}"
         if [ -f "$geosite_path" ]; then
             step "Удаление файла: ${geosite_path}"
             rm -f "$geosite_path"
@@ -90,13 +140,13 @@ uninstall_geofile() {
             info "Файл ${geosite_filename} не найден, пропуск."
         fi
         step "Удаление задачи из crontab для ${geosite_filename}..."
-        (crontab -l 2>/dev/null | grep -v "${geosite_filename}" || true) | crontab -
+        (crontab -l 2>/dev/null | grep -vF "${geosite_filename}" || true) | crontab -
         success "Задача для ${geosite_filename} удалена из crontab."
     fi
 
     if [ "$has_geoip" = "true" ]; then
         local geoip_filename="${repo_name}-geoip.dat"
-        local geoip_path="${XRAY_SHARE_DIR}/${geoip_filename}"
+        local geoip_path="${GEOFILES_DIR}/${geoip_filename}"
         if [ -f "$geoip_path" ]; then
             step "Удаление файла: ${geoip_path}"
             rm -f "$geoip_path"
@@ -106,7 +156,7 @@ uninstall_geofile() {
             info "Файл ${geoip_filename} не найден, пропуск."
         fi
         step "Удаление задачи из crontab для ${geoip_filename}..."
-        (crontab -l 2>/dev/null | grep -v "${geoip_filename}" || true) | crontab -
+        (crontab -l 2>/dev/null | grep -vF "${geoip_filename}" || true) | crontab -
         success "Задача для ${geoip_filename} удалена из crontab."
     fi
 

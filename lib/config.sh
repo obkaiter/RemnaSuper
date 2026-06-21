@@ -17,7 +17,7 @@ GITHUB_TARBALL_URL="https://codeload.github.com/${GITHUB_REPO}/tar.gz/refs/heads
 
 NODE_DIR="/opt/remnanode"
 AGENT_DIR="/opt/remnawave-node-agent"
-XRAY_SHARE_DIR="/opt/remnawave/xray/share"
+GEOFILES_DIR="/opt/remnanode/geofiles"
 LOG_DIR="/var/log/remnanode"
 COMPOSE_FILE="$NODE_DIR/docker-compose.yml"
 ROTATE_CONF="/etc/logrotate.d/remnanode"
