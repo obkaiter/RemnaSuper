@@ -58,7 +58,7 @@ show_menu() {
     menu_item 6 "Перезапустить ноду"
     menu_item 7 "Перезапустить агента"
     menu_item 8 "Восстановить docker-compose.yml из бэкапа"
-    menu_item 9 "Выполнить apt update && apt upgrade"
+    menu_item 9 "Выполнить первоначальную настройку"
     menu_item 10 "Установить remnawave-reverse-proxy"
     menu_item 11 "Просмотр ошибок Xray"
 
@@ -86,7 +86,7 @@ main_menu() {
             6) restart_node ;;
             7) restart_agent ;;
             8) restore_backup ;;
-            9) apt_update_upgrade ;;
+            9) initial_setup ;;
             10) install_remnawave_reverse_proxy ;;
             11) view_errors ;;
             12) geofiles_menu ;;
