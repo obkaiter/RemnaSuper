@@ -116,6 +116,40 @@ view_errors() {
     pause
 }
 
+install_remnanode_certificates() {
+    header "Установка сертификатов в RemnaNode"
+    local domain
+    local fullchain_volume
+    local privkey_volume
+
+    printf "${CYAN}Доменное имя:${NC} "
+    read -r domain
+
+    if [[ ! "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] ||
+        [[ "$domain" != *.* ]] || [[ "$domain" == *..* ]]; then
+        error "Некорректное доменное имя."
+        pause
+        return
+    fi
+
+    if [ ! -f "$COMPOSE_FILE" ]; then
+        error "Файл $COMPOSE_FILE не найден."
+        pause
+        return
+    fi
+
+    fullchain_volume="/etc/letsencrypt/live/${domain}/fullchain.pem:/etc/nginx/ssl/${domain}/fullchain.pem:ro"
+    privkey_volume="/etc/letsencrypt/live/${domain}/privkey.pem:/etc/nginx/ssl/${domain}/privkey.pem:ro"
+
+    backup_compose
+    # Новые записи добавляются сразу после volumes, поэтому добавляем их в обратном порядке.
+    add_remnanode_volume "$privkey_volume" || { pause; return; }
+    add_remnanode_volume "$fullchain_volume" || { pause; return; }
+
+    restart_remnanode_compose
+    pause
+}
+
 run_node_accelerator() {
     header "Выполнение Node Accelerator"
     check_command curl || { pause; return; }

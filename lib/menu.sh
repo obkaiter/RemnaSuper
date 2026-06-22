@@ -61,14 +61,15 @@ show_menu() {
     menu_item 9 "Выполнить первоначальную настройку"
     menu_item 10 "Установить remnawave-reverse-proxy"
     menu_item 11 "Просмотр ошибок Xray"
+    menu_item 12 "Установить сертификаты в RemnaNode"
 
     section "Прочее"
-    menu_item 12 "Установка/удаление geofiles"
-    menu_item 13 "Выполнить Node Accelerator"
+    menu_item 13 "Установка/удаление geofiles"
+    menu_item 14 "Выполнить Node Accelerator"
 
     section "Навигация"
     menu_exit_item
-    prompt_choice "0-13"
+    prompt_choice "0-14"
 }
 
 main_menu() {
@@ -89,8 +90,9 @@ main_menu() {
             9) initial_setup ;;
             10) install_remnawave_reverse_proxy ;;
             11) view_errors ;;
-            12) geofiles_menu ;;
-            13) run_node_accelerator ;;
+            12) install_remnanode_certificates ;;
+            13) geofiles_menu ;;
+            14) run_node_accelerator ;;
             0) exit_menu ;;
             *) warn "Неверный выбор."; sleep 1 ;;
         esac
