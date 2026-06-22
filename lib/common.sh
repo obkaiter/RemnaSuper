@@ -37,21 +37,43 @@ add_remnanode_volume() {
     local volume="$1"
     local tmp_file
 
-    if grep -qF "$volume" "$COMPOSE_FILE"; then
+    if awk -v target="$volume" '
+        /^services:[[:space:]]*$/ { in_services=1; next }
+        in_services && /^[^[:space:]#][^:]*:/ { in_services=0 }
+        in_services && /^  remnanode:[[:space:]]*$/ {
+            in_remnanode=1
+            in_volumes=0
+            next
+        }
+        in_remnanode && /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ {
+            in_remnanode=0
+            in_volumes=0
+        }
+        in_remnanode && /^    volumes:[[:space:]]*$/ {
+            in_volumes=1
+            next
+        }
+        in_volumes && /^    [A-Za-z0-9_.-]+:/ { in_volumes=0 }
+        in_volumes && /^[[:space:]]*-[[:space:]]*/ {
+            line=$0
+            sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            if (line == target) {
+                found=1
+            }
+        }
+        END { exit(found ? 0 : 1) }
+    ' "$COMPOSE_FILE"; then
         success "Volume уже присутствует: $volume"
-        return 0
-    fi
-
-    if grep -qE '^[[:space:]]*-[[:space:]]*/dev/shm:/dev/shm:rw' "$COMPOSE_FILE"; then
-        sed -i "\|^[[:space:]]*-[[:space:]]*/dev/shm:/dev/shm:rw|a\\      - $volume" "$COMPOSE_FILE"
-        success "Volume добавлен: $volume"
         return 0
     fi
 
     tmp_file="$(mktemp)"
     awk -v volume_line="      - $volume" '
-        /^  remnanode:/ { in_remnanode=1 }
-        in_remnanode && /^  [A-Za-z0-9_-]+:/ && !/^  remnanode:/ { in_remnanode=0 }
+        /^services:[[:space:]]*$/ { in_services=1 }
+        in_services && /^[^[:space:]#][^:]*:/ && !/^services:/ { in_services=0 }
+        in_services && /^  remnanode:[[:space:]]*$/ { in_remnanode=1 }
+        in_remnanode && /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ && !/^  remnanode:/ { in_remnanode=0 }
         in_remnanode && /^[[:space:]]*volumes:[[:space:]]*$/ && !added {
             print
             print volume_line
