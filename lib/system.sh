@@ -70,18 +70,32 @@ install_remnawave_reverse_proxy() {
     pause
 }
 
+follow_until_interrupt() {
+    local interrupted=0
+    local command_status
+
+    trap 'interrupted=1' INT
+    "$@"
+    command_status=$?
+    trap - INT
+
+    if [ "$interrupted" -eq 1 ] || [ "$command_status" -gt 128 ]; then
+        printf "\n"
+        info "Просмотр остановлен."
+    fi
+    pause
+}
+
 view_errors() {
     header "Просмотр ошибок"
     check_docker || { pause; return; }
 
-    docker exec -it remnanode tail -n +1 -f /var/log/supervisor/xray.out.log
-    pause
+    follow_until_interrupt docker exec -it remnanode tail -n +1 -f /var/log/supervisor/xray.out.log
 }
 
 view_xray_logs() {
     header "Просмотр логов Xray"
-    tail -f /var/log/remnanode/access.log
-    pause
+    follow_until_interrupt tail -f /var/log/remnanode/access.log
 }
 
 install_zapret() {
