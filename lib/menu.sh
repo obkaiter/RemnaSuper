@@ -102,7 +102,7 @@ show_menu() {
     menu_item 4 "Выполнить Node Accelerator"
     menu_item 5 "Исправить логи в RemnaNode"
     menu_item 6 "Настроить ротацию логов"
-    menu_item 7 "Установить zapret"
+    menu_item 7 "Установить ss-zapret"
     menu_item 8 "Установить tspu checker"
 
     section "Управление"
@@ -144,8 +144,8 @@ main_menu() {
             6) run_action "Настройка ротации логов" \
                 "Будет предложен профиль logrotate. Выбранная конфигурация будет записана в /etc/logrotate.d/remnanode и проверена на ошибки." \
                 setup_logrotate ;;
-            7) run_action "Установка zapret" \
-                "Будет скачан и запущен installer.sh из репозитория Snowy-Fluffy/zapret.installer." \
+            7) run_action "Установка ss-zapret" \
+                "Будет установлен Docker-контейнер vernette/ss-zapret с локальным SOCKS5 на 127.0.0.1:1080, проверена его доступность и создан готовый outbound для Xray." \
                 install_zapret ;;
             8) run_action "Установка tspu checker" \
                 "Будут установлены hping3, nmap, netcat-openbsd, openssl, dnsutils и curl; репозиторий ku78/tspu-checker будет клонирован в /opt/tspu-checker, затем tspu_check.sh будет запущен." \
