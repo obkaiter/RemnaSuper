@@ -310,6 +310,26 @@ search_zapret_strategy() {
 
     ensure_ss_zapret_running || { pause; return; }
 
+    step "Проверка компонентов blockcheck..."
+    if ! (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh -c '
+        [ -x /opt/zapret/nfq/nfqws ] && [ -x /opt/zapret/mdig/mdig ]
+    '); then
+        error "В контейнере отсутствуют nfqws или mdig. Обновите образ через пункт установки ss-zapret."
+        pause
+        return
+    fi
+
+    if ! (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh -c '
+        command -v nslookup >/dev/null 2>&1 || command -v host >/dev/null 2>&1
+    '); then
+        step "Установка bind-tools внутри контейнера для blockcheck..."
+        if ! (cd "$ZAPRET_DIR" && docker compose exec ss-zapret apk add --no-cache bind-tools); then
+            error "Не удалось установить bind-tools внутри контейнера ss-zapret."
+            pause
+            return
+        fi
+    fi
+
     step "Остановка zapret перед поиском стратегии..."
     if ! (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh /opt/zapret/init.d/sysv/zapret stop); then
         error "Не удалось остановить zapret внутри контейнера."
@@ -319,7 +339,7 @@ search_zapret_strategy() {
 
     step "Запуск интерактивного blockcheck.sh..."
     trap 'interrupted=1' INT
-    (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh /opt/zapret/blockcheck.sh)
+    (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh -c 'SKIP_TPWS=1 /opt/zapret/blockcheck.sh')
     search_status=$?
     trap - INT
 
