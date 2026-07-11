@@ -8,11 +8,12 @@ show_zapret_menu() {
     menu_item 1 "Установить ss-zapret2"
     menu_item 2 "Поиск стратегии"
     menu_item 3 "Показать текущую стратегию"
-    menu_danger_item 4 "Удалить ss-zapret2"
+    menu_item 4 "Установить стратегию вручную"
+    menu_danger_item 5 "Удалить ss-zapret2"
 
     section "Навигация"
     menu_back_item
-    prompt_choice "0-4"
+    prompt_choice "0-5"
 }
 
 zapret_menu() {
@@ -31,7 +32,10 @@ zapret_menu() {
             3) run_action "Текущая стратегия ss-zapret2" \
                 "Будет прочитан параметр NFQWS2_OPT из /opt/ss-zapret2/config и показана текущая стратегия. Конфигурация и состояние контейнера изменены не будут." \
                 show_current_zapret_strategy ;;
-            4) run_action "Удаление ss-zapret2" \
+            4) run_action "Ручная установка стратегии ss-zapret2" \
+                "Будет открыт текстовый редактор с текущим значением NFQWS2_OPT. Введите только параметры стратегии без NFQWS2_OPT= и внешних кавычек, сохраните файл и закройте редактор. Стратегия будет проверена, записана с созданием бэкапа и применена перезапуском контейнера. При ошибке запуска предыдущая конфигурация будет восстановлена автоматически." \
+                install_zapret_strategy_manually ;;
+            5) run_action "Удаление ss-zapret2" \
                 "Контейнер ss-zapret2 будет остановлен, Docker-образ и каталог /opt/ss-zapret2 со всеми настройками и Xray outbound будут удалены. Сохранённый каталог прежней версии /opt/ss-zapret затронут не будет." \
                 uninstall_ss_zapret ;;
             0) return ;;
