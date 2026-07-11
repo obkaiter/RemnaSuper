@@ -260,6 +260,181 @@ EOF
     pause
 }
 
+ensure_ss_zapret_running() {
+    local health_status=""
+    local attempt
+
+    check_docker || return 1
+
+    if [ ! -f "$ZAPRET_DIR/docker-compose.yml" ]; then
+        error "ss-zapret не установлен. Сначала выполните пункт 'Установить ss-zapret'."
+        return 1
+    fi
+
+    if ! (cd "$ZAPRET_DIR" && docker compose up -d); then
+        error "Не удалось запустить ss-zapret."
+        return 1
+    fi
+
+    for ((attempt = 1; attempt <= 30; attempt++)); do
+        health_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' zapret-proxy 2>/dev/null || true)"
+        case "$health_status" in
+            healthy|running) return 0 ;;
+            unhealthy|exited|dead) break ;;
+        esac
+        sleep 1
+    done
+
+    error "Контейнер zapret-proxy не готов. Статус: ${health_status:-неизвестен}."
+    return 1
+}
+
+get_ss_zapret_socks_port() {
+    local env_file="$ZAPRET_DIR/.env"
+    local socks_port
+
+    [ -f "$env_file" ] || return 1
+    socks_port="$(sed -n 's/^SOCKS_PORT=//p' "$env_file" | tail -n 1)"
+    if ! [[ "$socks_port" =~ ^[0-9]+$ ]] || [ "$socks_port" -lt 1 ] || [ "$socks_port" -gt 65535 ]; then
+        return 1
+    fi
+
+    printf "%s" "$socks_port"
+}
+
+search_zapret_strategy() {
+    header "Поиск стратегии ss-zapret"
+    local interrupted=0
+    local search_status
+    local restart_status
+
+    ensure_ss_zapret_running || { pause; return; }
+
+    step "Остановка zapret перед поиском стратегии..."
+    if ! (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh /opt/zapret/init.d/sysv/zapret stop); then
+        error "Не удалось остановить zapret внутри контейнера."
+        pause
+        return
+    fi
+
+    step "Запуск интерактивного blockcheck.sh..."
+    trap 'interrupted=1' INT
+    (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh /opt/zapret/blockcheck.sh)
+    search_status=$?
+    trap - INT
+
+    step "Повторный запуск ss-zapret..."
+    (cd "$ZAPRET_DIR" && docker compose restart)
+    restart_status=$?
+
+    if [ "$restart_status" -ne 0 ]; then
+        error "Поиск завершён, но контейнер ss-zapret не удалось перезапустить."
+    elif [ "$interrupted" -eq 1 ] || [ "$search_status" -gt 128 ]; then
+        warn "Поиск стратегии прерван. Контейнер ss-zapret снова запущен."
+    elif [ "$search_status" -eq 0 ]; then
+        success "Поиск стратегии завершён. Контейнер ss-zapret перезапущен."
+        info "Примените найденные параметры NFQWS_OPT в $ZAPRET_DIR/config и перезапустите ss-zapret."
+    else
+        error "blockcheck.sh завершился с ошибкой: $search_status"
+    fi
+    pause
+}
+
+run_zapret_censorcheck() {
+    header "Censorcheck ss-zapret"
+    local socks_port
+    local script_file
+    local interrupted=0
+    local check_status
+
+    ensure_ss_zapret_running || { pause; return; }
+    check_command curl || { pause; return; }
+    check_command bash || { pause; return; }
+    check_command apt-get || { pause; return; }
+
+    if ! command -v dig >/dev/null 2>&1 ||
+        ! command -v jq >/dev/null 2>&1 ||
+        ! command -v column >/dev/null 2>&1; then
+        step "Установка зависимостей censorcheck..."
+        if ! DEBIAN_FRONTEND=noninteractive apt-get update ||
+            ! DEBIAN_FRONTEND=noninteractive apt-get install -y dnsutils jq bsdextrautils; then
+            error "Не удалось установить зависимости censorcheck: dig, jq и column."
+            pause
+            return
+        fi
+    fi
+
+    if ! socks_port="$(get_ss_zapret_socks_port)"; then
+        error "Не удалось определить SOCKS_PORT в $ZAPRET_DIR/.env."
+        pause
+        return
+    fi
+
+    script_file="$(mktemp)" || {
+        error "Не удалось создать временный файл для censorcheck."
+        pause
+        return
+    }
+
+    step "Загрузка официального censorcheck.sh..."
+    if ! curl -fsSL --connect-timeout 10 --max-time 60 -o "$script_file" "$CENSORCHECK_URL"; then
+        rm -f "$script_file"
+        error "Не удалось скачать censorcheck.sh."
+        pause
+        return
+    fi
+
+    step "Запуск censorcheck через localhost:${socks_port}..."
+    trap 'interrupted=1' INT
+    bash "$script_file" --mode dpi --proxy "localhost:${socks_port}"
+    check_status=$?
+    trap - INT
+    rm -f "$script_file"
+
+    if [ "$interrupted" -eq 1 ] || [ "$check_status" -gt 128 ]; then
+        warn "Censorcheck прерван."
+    elif [ "$check_status" -eq 0 ]; then
+        success "Censorcheck завершён."
+    else
+        error "Censorcheck завершился с ошибкой: $check_status"
+    fi
+    pause
+}
+
+uninstall_ss_zapret() {
+    header "Удаление ss-zapret"
+
+    check_docker || { pause; return; }
+    if [ "$ZAPRET_DIR" != "/opt/ss-zapret" ]; then
+        error "Небезопасный путь удаления: $ZAPRET_DIR"
+        pause
+        return
+    fi
+
+    if [ ! -e "$ZAPRET_DIR" ]; then
+        warn "ss-zapret не установлен: $ZAPRET_DIR не найден."
+        pause
+        return
+    fi
+
+    if [ -f "$ZAPRET_DIR/docker-compose.yml" ]; then
+        step "Остановка контейнера и удаление образа ss-zapret..."
+        if ! (cd "$ZAPRET_DIR" && docker compose down --rmi all --remove-orphans); then
+            error "Не удалось полностью остановить ss-zapret. Файлы не удалены."
+            pause
+            return
+        fi
+    fi
+
+    step "Удаление $ZAPRET_DIR..."
+    if rm -rf -- "$ZAPRET_DIR"; then
+        success "ss-zapret, его конфигурация и Xray outbound удалены."
+    else
+        error "Не удалось удалить $ZAPRET_DIR."
+    fi
+    pause
+}
+
 install_tspu_checker() {
     header "Установка tspu checker"
     check_command apt || { pause; return; }
