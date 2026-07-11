@@ -22,10 +22,11 @@ show_menu() {
 
     section "Прочее"
     menu_item 13 "Установка/удаление geofiles"
+    menu_item 14 "Запустить ipregion"
 
     section "Навигация"
     menu_exit_item
-    prompt_choice "0-13"
+    prompt_choice "0-14"
 }
 
 main_menu() {
@@ -70,6 +71,9 @@ main_menu() {
                 "Будет выполнена команда tail -f /var/log/remnanode/access.log. Для выхода нажмите Ctrl+C." \
                 view_xray_logs ;;
             13) geofiles_menu ;;
+            14) run_action "Запуск ipregion" \
+                "Будет скачан и запущен скрипт ipregion с сайта ipregion.vrnt.xyz." \
+                run_ipregion ;;
             0) run_action "Выход" \
                 "Работа RemnaSuper будет завершена." \
                 exit_menu ;;
