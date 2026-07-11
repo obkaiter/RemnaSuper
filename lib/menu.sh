@@ -3,7 +3,6 @@
 confirm_action() {
     local title="$1"
     local description="$2"
-    local interrupted=0
     local read_status
 
     clear
@@ -11,12 +10,12 @@ confirm_action() {
     printf "%s\n" "$description"
     printf "\n${CYAN}Нажимте Enter чтобы продолжить${NC}"
 
-    trap 'interrupted=1' INT
+    trap 'trap - INT; printf "\n"; info "Действие отменено. Возврат в предыдущее меню."; return 130' INT
     read -r
     read_status=$?
     trap - INT
 
-    if [ "$interrupted" -eq 1 ] || [ "$read_status" -ne 0 ]; then
+    if [ "$read_status" -ne 0 ]; then
         printf "\n"
         info "Действие отменено. Возврат в предыдущее меню."
         return 1
