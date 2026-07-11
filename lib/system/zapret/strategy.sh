@@ -1,5 +1,100 @@
 #!/usr/bin/env bash
 
+_read_zapret_strategy_from_config() {
+    local config_file="$1"
+
+    awk '
+        /^NFQWS2_OPT="/ && !found {
+            found=1
+            line=$0
+            sub(/^NFQWS2_OPT="/, "", line)
+            if (line ~ /"[[:space:]]*$/) {
+                sub(/"[[:space:]]*$/, "", line)
+                closed=1
+                print line
+                exit
+            }
+            if (length(line) > 0) {
+                print line
+            }
+            in_block=1
+            next
+        }
+        in_block {
+            if (/^"[[:space:]]*$/) {
+                closed=1
+                exit
+            }
+            print
+        }
+        END {
+            if (!found || !closed) {
+                exit 42
+            }
+        }
+    ' "$config_file"
+}
+
+_write_zapret_strategy_to_config() {
+    local strategy_block="$1"
+    local config_file="$ZAPRET_DIR/config"
+    local backup_file
+    local tmp_file
+
+    if [ ! -f "$config_file" ]; then
+        error "Конфигурация ss-zapret2 не найдена: $config_file"
+        return 1
+    fi
+
+    backup_file="${config_file}.bak.$(date +%F_%H%M%S)"
+    tmp_file="$(mktemp)" || {
+        error "Не удалось создать временный файл для конфигурации ss-zapret2."
+        return 1
+    }
+
+    if ! awk -v strategy_block="$strategy_block" '
+        /^NFQWS2_OPT="/ && !replaced {
+            print "NFQWS2_OPT=\""
+            print strategy_block
+            in_block=1
+            replaced=1
+            next
+        }
+        in_block {
+            if (/^"[[:space:]]*$/) {
+                print "\""
+                in_block=0
+            }
+            next
+        }
+        { print }
+        END {
+            if (!replaced || in_block) {
+                exit 42
+            }
+        }
+    ' "$config_file" > "$tmp_file"; then
+        rm -f "$tmp_file"
+        error "Не удалось заменить NFQWS2_OPT в $config_file."
+        return 1
+    fi
+
+    if ! bash -n "$tmp_file"; then
+        rm -f "$tmp_file"
+        error "Сформированная конфигурация не прошла проверку синтаксиса."
+        return 1
+    fi
+
+    if ! cp "$config_file" "$backup_file" || ! mv "$tmp_file" "$config_file"; then
+        rm -f "$tmp_file"
+        error "Не удалось сохранить новую конфигурацию ss-zapret2."
+        return 1
+    fi
+
+    ZAPRET_APPLIED_CONFIG_BACKUP="$backup_file"
+    return 0
+}
+
 apply_zapret_strategy_from_log() {
     local search_log="$1"
     local http_strategy
@@ -7,9 +102,6 @@ apply_zapret_strategy_from_log() {
     local quic_strategy
     local strategy_lines=()
     local strategy_block=""
-    local config_file="$ZAPRET_DIR/config"
-    local backup_file
-    local tmp_file
     local index
     local strategy
 
@@ -78,60 +170,13 @@ apply_zapret_strategy_from_log() {
     done
     strategy_block="${strategy_block%$'\n'}"
 
-    if [ ! -f "$config_file" ]; then
-        error "Конфигурация ss-zapret2 не найдена: $config_file"
-        return 1
-    fi
-
-    backup_file="${config_file}.bak.$(date +%F_%H%M%S)"
-    tmp_file="$(mktemp)" || {
-        error "Не удалось создать временный файл для конфигурации ss-zapret2."
-        return 1
-    }
-
-    if ! awk -v strategy_block="$strategy_block" '
-        /^NFQWS2_OPT="/ && !replaced {
-            print "NFQWS2_OPT=\""
-            print strategy_block
-            in_block=1
-            replaced=1
-            next
-        }
-        in_block {
-            if (/^"[[:space:]]*$/) {
-                print "\""
-                in_block=0
-            }
-            next
-        }
-        { print }
-        END {
-            if (!replaced || in_block) {
-                exit 42
-            }
-        }
-    ' "$config_file" > "$tmp_file"; then
-        rm -f "$tmp_file"
-        error "Не удалось заменить NFQWS2_OPT в $config_file."
-        return 1
-    fi
-
-    if ! bash -n "$tmp_file"; then
-        rm -f "$tmp_file"
-        error "Сформированная конфигурация не прошла проверку синтаксиса."
-        return 1
-    fi
-
-    if ! cp "$config_file" "$backup_file" || ! mv "$tmp_file" "$config_file"; then
-        rm -f "$tmp_file"
-        error "Не удалось сохранить новую конфигурацию ss-zapret2."
+    if ! _write_zapret_strategy_to_config "$strategy_block"; then
         return 1
     fi
 
     success "Найденная стратегия автоматически записана в NFQWS2_OPT."
-    info "Бэкап предыдущей конфигурации: $backup_file"
+    info "Бэкап предыдущей конфигурации: $ZAPRET_APPLIED_CONFIG_BACKUP"
     printf "\n${CYAN}Применённая конфигурация:${NC}\n%s\n" "$strategy_block"
-    ZAPRET_APPLIED_CONFIG_BACKUP="$backup_file"
     return 0
 }
 
@@ -146,36 +191,7 @@ show_current_zapret_strategy() {
         return
     fi
 
-    if ! current_strategy="$(awk '
-        /^NFQWS2_OPT="/ && !found {
-            found=1
-            line=$0
-            sub(/^NFQWS2_OPT="/, "", line)
-            if (line ~ /"[[:space:]]*$/) {
-                sub(/"[[:space:]]*$/, "", line)
-                closed=1
-                print line
-                exit
-            }
-            if (length(line) > 0) {
-                print line
-            }
-            in_block=1
-            next
-        }
-        in_block {
-            if (/^"[[:space:]]*$/) {
-                closed=1
-                exit
-            }
-            print
-        }
-        END {
-            if (!found || !closed) {
-                exit 42
-            }
-        }
-    ' "$config_file")"; then
+    if ! current_strategy="$(_read_zapret_strategy_from_config "$config_file")"; then
         error "Параметр NFQWS2_OPT не найден или имеет некорректный формат в $config_file."
         pause
         return
@@ -186,6 +202,116 @@ show_current_zapret_strategy() {
         printf "%s\n" "$current_strategy"
     else
         warn "Текущая стратегия пуста."
+    fi
+    pause
+}
+
+install_zapret_strategy_manually() {
+    header "Ручная установка стратегии ss-zapret2"
+    local config_file="$ZAPRET_DIR/config"
+    local strategy_file
+    local current_strategy
+    local strategy_block
+    local editor
+
+    check_docker || { pause; return; }
+
+    if [ ! -f "$config_file" ]; then
+        error "Конфигурация ss-zapret2 не найдена: $config_file"
+        pause
+        return
+    fi
+
+    if command -v nano >/dev/null 2>&1; then
+        editor="nano"
+    elif command -v editor >/dev/null 2>&1; then
+        editor="editor"
+    elif command -v vi >/dev/null 2>&1; then
+        editor="vi"
+    else
+        error "Текстовый редактор не найден. Установите nano и повторите попытку."
+        pause
+        return
+    fi
+
+    if ! current_strategy="$(_read_zapret_strategy_from_config "$config_file")"; then
+        error "Параметр NFQWS2_OPT не найден или имеет некорректный формат в $config_file."
+        pause
+        return
+    fi
+
+    strategy_file="$(mktemp)" || {
+        error "Не удалось создать временный файл для ручной стратегии."
+        pause
+        return
+    }
+    chmod 600 "$strategy_file"
+    printf "%s\n" "$current_strategy" > "$strategy_file"
+
+    info "Открывается редактор $editor. Укажите только параметры стратегии, без NFQWS2_OPT= и внешних кавычек."
+    if ! "$editor" "$strategy_file"; then
+        rm -f "$strategy_file"
+        warn "Редактирование отменено. Конфигурация не изменена."
+        pause
+        return
+    fi
+
+    if ! grep -q '[^[:space:]]' "$strategy_file"; then
+        rm -f "$strategy_file"
+        error "Стратегия не может быть пустой. Конфигурация не изменена."
+        pause
+        return
+    fi
+
+    strategy_block="$(tr -d '\r' < "$strategy_file")"
+    rm -f "$strategy_file"
+
+    if [[ "$strategy_block" == *'"'* ]] || [[ "$strategy_block" == *'`'* ]] ||
+        [[ "$strategy_block" == *'$'* ]] || [[ "$strategy_block" == *\\* ]] ||
+        [[ "$strategy_block" == *';'* ]] || [[ "$strategy_block" == *'|'* ]] ||
+        [[ "$strategy_block" == *'&'* ]]; then
+        error "Стратегия содержит недопустимые управляющие символы. Конфигурация не изменена."
+        pause
+        return
+    fi
+
+    if ! printf "%s\n" "$strategy_block" | awk '
+        NF && $0 !~ /^[[:space:]]*--/ { exit 1 }
+    '; then
+        error "Каждая непустая строка стратегии должна начинаться с '--'. Конфигурация не изменена."
+        pause
+        return
+    fi
+
+    if [ "$strategy_block" = "$current_strategy" ]; then
+        info "Стратегия не была изменена."
+        pause
+        return
+    fi
+
+    ZAPRET_APPLIED_CONFIG_BACKUP=""
+    step "Проверка и сохранение ручной стратегии..."
+    if ! _write_zapret_strategy_to_config "$strategy_block"; then
+        pause
+        return
+    fi
+
+    step "Перезапуск ss-zapret2 с новой стратегией..."
+    if (cd "$ZAPRET_DIR" && docker compose restart) && ensure_ss_zapret_running; then
+        success "Ручная стратегия применена, контейнер ss-zapret2 запущен и готов."
+        info "Бэкап предыдущей конфигурации: $ZAPRET_APPLIED_CONFIG_BACKUP"
+        pause
+        return
+    fi
+
+    warn "Контейнер не запустился с новой стратегией. Восстановление предыдущей конфигурации..."
+    if [ -f "$ZAPRET_APPLIED_CONFIG_BACKUP" ] &&
+        cp "$ZAPRET_APPLIED_CONFIG_BACKUP" "$config_file" &&
+        (cd "$ZAPRET_DIR" && docker compose restart) &&
+        ensure_ss_zapret_running; then
+        error "Ручная стратегия не применена: предыдущая конфигурация автоматически восстановлена."
+    else
+        error "Не удалось запустить новую стратегию и автоматически восстановить предыдущую конфигурацию."
     fi
     pause
 }
