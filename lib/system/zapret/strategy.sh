@@ -135,6 +135,61 @@ apply_zapret_strategy_from_log() {
     return 0
 }
 
+show_current_zapret_strategy() {
+    header "Текущая стратегия ss-zapret2"
+    local config_file="$ZAPRET_DIR/config"
+    local current_strategy
+
+    if [ ! -f "$config_file" ]; then
+        error "Конфигурация ss-zapret2 не найдена: $config_file"
+        pause
+        return
+    fi
+
+    if ! current_strategy="$(awk '
+        /^NFQWS2_OPT="/ && !found {
+            found=1
+            line=$0
+            sub(/^NFQWS2_OPT="/, "", line)
+            if (line ~ /"[[:space:]]*$/) {
+                sub(/"[[:space:]]*$/, "", line)
+                closed=1
+                print line
+                exit
+            }
+            if (length(line) > 0) {
+                print line
+            }
+            in_block=1
+            next
+        }
+        in_block {
+            if (/^"[[:space:]]*$/) {
+                closed=1
+                exit
+            }
+            print
+        }
+        END {
+            if (!found || !closed) {
+                exit 42
+            }
+        }
+    ' "$config_file")"; then
+        error "Параметр NFQWS2_OPT не найден или имеет некорректный формат в $config_file."
+        pause
+        return
+    fi
+
+    section "NFQWS2_OPT"
+    if [ -n "$current_strategy" ]; then
+        printf "%s\n" "$current_strategy"
+    else
+        warn "Текущая стратегия пуста."
+    fi
+    pause
+}
+
 search_zapret_strategy() {
     header "Поиск стратегии ss-zapret2"
     local interrupted=0
