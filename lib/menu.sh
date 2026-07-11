@@ -41,6 +41,46 @@ run_geofiles_action() {
     pause
 }
 
+show_zapret_menu() {
+    clear
+    show_brand "zapret"
+
+    section "Управление"
+    menu_item 1 "Установить ss-zapret"
+    menu_item 2 "Поиск стратегии"
+    menu_item 3 "Censorcheck"
+    menu_danger_item 4 "Удалить ss-zapret"
+
+    section "Навигация"
+    menu_back_item
+    prompt_choice "0-4"
+}
+
+zapret_menu() {
+    local choice
+
+    while true; do
+        show_zapret_menu
+        read -r choice
+        case $choice in
+            1) run_action "Установка ss-zapret" \
+                "Будет установлен Docker-контейнер vernette/ss-zapret с локальным SOCKS5, проверена его доступность и создан готовый outbound для Xray." \
+                install_zapret ;;
+            2) run_action "Поиск стратегии ss-zapret" \
+                "Обработка zapret будет временно остановлена, затем внутри контейнера запустится интерактивный blockcheck.sh. После завершения или прерывания контейнер будет перезапущен." \
+                search_zapret_strategy ;;
+            3) run_action "Censorcheck ss-zapret" \
+                "Будут установлены необходимые зависимости, загружен официальный censorcheck.sh и выполнена проверка DPI через локальный SOCKS5-порт ss-zapret." \
+                run_zapret_censorcheck ;;
+            4) run_action "Удаление ss-zapret" \
+                "Контейнер ss-zapret будет остановлен, Docker-образ и каталог /opt/ss-zapret со всеми настройками и Xray outbound будут удалены." \
+                uninstall_ss_zapret ;;
+            0) return ;;
+            *) warn "Неверный выбор."; sleep 1 ;;
+        esac
+    done
+}
+
 show_geofiles_menu() {
     clear
     show_brand "Geofiles"
@@ -102,7 +142,7 @@ show_menu() {
     menu_item 4 "Выполнить Node Accelerator"
     menu_item 5 "Исправить логи в RemnaNode"
     menu_item 6 "Настроить ротацию логов"
-    menu_item 7 "Установить ss-zapret"
+    menu_item 7 "zapret"
     menu_item 8 "Установить tspu checker"
 
     section "Управление"
@@ -144,9 +184,7 @@ main_menu() {
             6) run_action "Настройка ротации логов" \
                 "Будет предложен профиль logrotate. Выбранная конфигурация будет записана в /etc/logrotate.d/remnanode и проверена на ошибки." \
                 setup_logrotate ;;
-            7) run_action "Установка ss-zapret" \
-                "Будет установлен Docker-контейнер vernette/ss-zapret с локальным SOCKS5 на 127.0.0.1:1080, проверена его доступность и создан готовый outbound для Xray." \
-                install_zapret ;;
+            7) zapret_menu ;;
             8) run_action "Установка tspu checker" \
                 "Будут установлены hping3, nmap, netcat-openbsd, openssl, dnsutils и curl; репозиторий ku78/tspu-checker будет клонирован в /opt/tspu-checker, затем tspu_check.sh будет запущен." \
                 install_tspu_checker ;;
