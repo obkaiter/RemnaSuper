@@ -24,8 +24,7 @@ show_brand() {
     local subtitle="${1:-}"
 
     printf "${BOLD}${CYAN}%s${NC} ${WHITE}v%s${NC}\n" "$REMNASUPER_NAME" "$REMNASUPER_VERSION"
-    printf "${DIM}node control / logs / geofiles${NC}\n"
-    divider
+    printf "${DIM}Автор: github.com/obkaiter${NC}\n"
     [ -n "$subtitle" ] && printf "%s\n\n" "$subtitle"
 }
 
