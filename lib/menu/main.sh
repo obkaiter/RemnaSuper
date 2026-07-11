@@ -11,7 +11,7 @@ show_menu() {
     menu_item 4 "Выполнить Node Accelerator"
     menu_item 5 "Исправить логи в RemnaNode"
     menu_item 6 "Настроить ротацию логов"
-    menu_item 7 "Управление ss-zapret"
+    menu_item 7 "Управление ss-zapret2"
     menu_item 8 "Установить tspu checker"
 
     section "Управление"
@@ -77,4 +77,3 @@ main_menu() {
         esac
     done
 }
-

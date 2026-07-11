@@ -16,8 +16,10 @@ apply_zapret_strategy_from_log() {
     http_strategy="$(awk '
         /^\* SUMMARY/ { in_summary=1; next }
         in_summary && /^Please note/ { exit }
-        in_summary && /^curl_test_http ipv4 .* : nfqws / {
-            sub(/^.* : nfqws /, "")
+        in_summary && /^curl_test_http ipv4 .* : nfqws2 / {
+            sub(/^.* : nfqws2 /, "")
+            sub(/^--wf-l3=ipv4[[:space:]]+/, "")
+            sub(/^--wf-tcp-out=80[[:space:]]+/, "")
             sub(/\r$/, "")
             print
             exit
@@ -26,8 +28,10 @@ apply_zapret_strategy_from_log() {
     https_strategy="$(awk '
         /^\* SUMMARY/ { in_summary=1; next }
         in_summary && /^Please note/ { exit }
-        in_summary && /^curl_test_https_tls(12|13) ipv4 .* : nfqws / {
-            sub(/^.* : nfqws /, "")
+        in_summary && /^curl_test_https_tls(12|13) ipv4 .* : nfqws2 / {
+            sub(/^.* : nfqws2 /, "")
+            sub(/^--wf-l3=ipv4[[:space:]]+/, "")
+            sub(/^--wf-tcp-out=443[[:space:]]+/, "")
             sub(/\r$/, "")
             print
             exit
@@ -36,8 +40,10 @@ apply_zapret_strategy_from_log() {
     quic_strategy="$(awk '
         /^\* SUMMARY/ { in_summary=1; next }
         in_summary && /^Please note/ { exit }
-        in_summary && /^curl_test_http3 ipv4 .* : nfqws / {
-            sub(/^.* : nfqws /, "")
+        in_summary && /^curl_test_http3 ipv4 .* : nfqws2 / {
+            sub(/^.* : nfqws2 /, "")
+            sub(/^--wf-l3=ipv4[[:space:]]+/, "")
+            sub(/^--wf-udp-out=443[[:space:]]+/, "")
             sub(/\r$/, "")
             print
             exit
@@ -46,7 +52,7 @@ apply_zapret_strategy_from_log() {
 
     for strategy in "$http_strategy" "$https_strategy" "$quic_strategy"; do
         if [[ "$strategy" == *'"'* ]] || [[ "$strategy" == *'`'* ]] ||
-            [[ "$strategy" == *'$'* ]] || [[ "$strategy" == *'\\'* ]] ||
+            [[ "$strategy" == *'$'* ]] || [[ "$strategy" == *\\* ]] ||
             [[ "$strategy" == *';'* ]] || [[ "$strategy" == *'|'* ]] ||
             [[ "$strategy" == *'&'* ]]; then
             error "Найденная стратегия содержит небезопасные символы. Конфигурация не изменена."
@@ -54,12 +60,12 @@ apply_zapret_strategy_from_log() {
         fi
     done
 
-    [ -n "$http_strategy" ] && strategy_lines+=("--filter-tcp=80 $http_strategy")
-    [ -n "$https_strategy" ] && strategy_lines+=("--filter-tcp=443 $https_strategy")
-    [ -n "$quic_strategy" ] && strategy_lines+=("--filter-udp=443 $quic_strategy")
+    [ -n "$http_strategy" ] && strategy_lines+=("--filter-tcp=80 --filter-l7=http $http_strategy")
+    [ -n "$https_strategy" ] && strategy_lines+=("--filter-tcp=443 --filter-l7=tls $https_strategy")
+    [ -n "$quic_strategy" ] && strategy_lines+=("--filter-udp=443 --filter-l7=quic $quic_strategy")
 
     if [ "${#strategy_lines[@]}" -eq 0 ]; then
-        warn "Blockcheck не нашёл стратегий, требующих применения. Текущий NFQWS_OPT сохранён."
+        warn "Blockcheck2 не нашёл стратегий, требующих применения. Текущий NFQWS2_OPT сохранён."
         return 2
     fi
 
@@ -73,19 +79,19 @@ apply_zapret_strategy_from_log() {
     strategy_block="${strategy_block%$'\n'}"
 
     if [ ! -f "$config_file" ]; then
-        error "Конфигурация ss-zapret не найдена: $config_file"
+        error "Конфигурация ss-zapret2 не найдена: $config_file"
         return 1
     fi
 
     backup_file="${config_file}.bak.$(date +%F_%H%M%S)"
     tmp_file="$(mktemp)" || {
-        error "Не удалось создать временный файл для конфигурации ss-zapret."
+        error "Не удалось создать временный файл для конфигурации ss-zapret2."
         return 1
     }
 
     if ! awk -v strategy_block="$strategy_block" '
-        /^NFQWS_OPT="/ && !replaced {
-            print "NFQWS_OPT=\""
+        /^NFQWS2_OPT="/ && !replaced {
+            print "NFQWS2_OPT=\""
             print strategy_block
             in_block=1
             replaced=1
@@ -106,7 +112,7 @@ apply_zapret_strategy_from_log() {
         }
     ' "$config_file" > "$tmp_file"; then
         rm -f "$tmp_file"
-        error "Не удалось заменить NFQWS_OPT в $config_file."
+        error "Не удалось заменить NFQWS2_OPT в $config_file."
         return 1
     fi
 
@@ -118,11 +124,11 @@ apply_zapret_strategy_from_log() {
 
     if ! cp "$config_file" "$backup_file" || ! mv "$tmp_file" "$config_file"; then
         rm -f "$tmp_file"
-        error "Не удалось сохранить новую конфигурацию ss-zapret."
+        error "Не удалось сохранить новую конфигурацию ss-zapret2."
         return 1
     fi
 
-    success "Найденная стратегия автоматически записана в NFQWS_OPT."
+    success "Найденная стратегия автоматически записана в NFQWS2_OPT."
     info "Бэкап предыдущей конфигурации: $backup_file"
     printf "\n${CYAN}Применённая конфигурация:${NC}\n%s\n" "$strategy_block"
     ZAPRET_APPLIED_CONFIG_BACKUP="$backup_file"
@@ -130,7 +136,7 @@ apply_zapret_strategy_from_log() {
 }
 
 search_zapret_strategy() {
-    header "Поиск стратегии ss-zapret"
+    header "Поиск стратегии ss-zapret2"
     local interrupted=0
     local search_status
     local restart_status
@@ -143,43 +149,43 @@ search_zapret_strategy() {
     ensure_ss_zapret_running || { pause; return; }
     check_command tee || { pause; return; }
 
-    step "Проверка компонентов blockcheck..."
-    if ! (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh -c '
-        [ -x /opt/zapret/nfq/nfqws ] && [ -x /opt/zapret/mdig/mdig ]
-    '); then
-        error "В контейнере отсутствуют nfqws или mdig. Обновите образ через пункт установки ss-zapret."
+    step "Проверка компонентов blockcheck2..."
+    if ! (cd "$ZAPRET_DIR" && docker compose exec "$ZAPRET_SERVICE" sh -c "
+        [ -x '$ZAPRET_CONTAINER_DIR/nfq2/nfqws2' ] && [ -x '$ZAPRET_CONTAINER_DIR/mdig/mdig' ]
+    "); then
+        error "В контейнере отсутствуют nfqws2 или mdig. Обновите образ через пункт установки ss-zapret2."
         pause
         return
     fi
 
-    if ! (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh -c '
+    if ! (cd "$ZAPRET_DIR" && docker compose exec "$ZAPRET_SERVICE" sh -c '
         command -v nslookup >/dev/null 2>&1 || command -v host >/dev/null 2>&1
     '); then
-        step "Установка bind-tools внутри контейнера для blockcheck..."
-        if ! (cd "$ZAPRET_DIR" && docker compose exec ss-zapret apk add --no-cache bind-tools); then
-            error "Не удалось установить bind-tools внутри контейнера ss-zapret."
+        step "Установка bind-tools внутри контейнера для blockcheck2..."
+        if ! (cd "$ZAPRET_DIR" && docker compose exec "$ZAPRET_SERVICE" apk add --no-cache bind-tools); then
+            error "Не удалось установить bind-tools внутри контейнера ss-zapret2."
             pause
             return
         fi
     fi
 
-    step "Остановка zapret перед поиском стратегии..."
-    if ! (cd "$ZAPRET_DIR" && docker compose exec ss-zapret sh /opt/zapret/init.d/sysv/zapret stop); then
-        error "Не удалось остановить zapret внутри контейнера."
+    step "Остановка zapret2 перед поиском стратегии..."
+    if ! (cd "$ZAPRET_DIR" && docker compose exec "$ZAPRET_SERVICE" sh "$ZAPRET_CONTAINER_DIR/init.d/sysv/zapret2" stop); then
+        error "Не удалось остановить zapret2 внутри контейнера."
         pause
         return
     fi
 
     search_log="$(mktemp)" || {
-        error "Не удалось создать временный файл для результата blockcheck."
+        error "Не удалось создать временный файл для результата blockcheck2."
         (cd "$ZAPRET_DIR" && docker compose restart) || true
         pause
         return
     }
 
-    step "Запуск интерактивного blockcheck.sh..."
+    step "Запуск интерактивного blockcheck2.sh..."
     trap 'interrupted=1' INT
-    (cd "$ZAPRET_DIR" && docker compose exec -T ss-zapret sh -c 'SKIP_TPWS=1 /opt/zapret/blockcheck.sh') 2>&1 | tee "$search_log"
+    (cd "$ZAPRET_DIR" && docker compose exec -T "$ZAPRET_SERVICE" sh "$ZAPRET_CONTAINER_DIR/blockcheck2.sh") 2>&1 | tee "$search_log"
     search_status="${PIPESTATUS[0]}"
     trap - INT
 
@@ -190,7 +196,7 @@ search_zapret_strategy() {
     fi
     rm -f "$search_log"
 
-    step "Повторный запуск ss-zapret..."
+    step "Повторный запуск ss-zapret2..."
     if (cd "$ZAPRET_DIR" && docker compose restart) && ensure_ss_zapret_running; then
         restart_status=0
     else
@@ -209,18 +215,17 @@ search_zapret_strategy() {
     if [ "$restart_status" -ne 0 ] && [ "$rollback_status" -eq 0 ]; then
         error "Новая стратегия не применена: предыдущая конфигурация автоматически восстановлена."
     elif [ "$restart_status" -ne 0 ]; then
-        error "Поиск завершён, но контейнер ss-zapret не удалось перезапустить."
+        error "Поиск завершён, но контейнер ss-zapret2 не удалось перезапустить."
     elif [ "$interrupted" -eq 1 ] || [ "$search_status" -gt 128 ]; then
-        warn "Поиск стратегии прерван. Контейнер ss-zapret снова запущен."
+        warn "Поиск стратегии прерван. Контейнер ss-zapret2 снова запущен."
     elif [ "$search_status" -eq 0 ] && [ "$apply_status" -eq 0 ]; then
-        success "Поиск завершён, найденная стратегия применена, ss-zapret перезапущен."
+        success "Поиск завершён, найденная стратегия применена, ss-zapret2 перезапущен."
     elif [ "$search_status" -eq 0 ] && [ "$apply_status" -eq 2 ]; then
-        success "Поиск завершён. Изменение стратегии не потребовалось, ss-zapret перезапущен."
+        success "Поиск завершён. Изменение стратегии не потребовалось, ss-zapret2 перезапущен."
     elif [ "$search_status" -eq 0 ]; then
         error "Поиск завершён, но автоматически применить стратегию не удалось."
     else
-        error "blockcheck.sh завершился с ошибкой: $search_status"
+        error "blockcheck2.sh завершился с ошибкой: $search_status"
     fi
     pause
 }
-
