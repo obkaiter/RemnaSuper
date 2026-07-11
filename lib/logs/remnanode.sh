@@ -41,6 +41,5 @@ fix_logs() {
         printf "   1. В панели не применен конфиг с loglevel: 'info'\n"
         printf "   2. Нет активных подключений\n"
     fi
-    pause
+    setup_logrotate
 }
-

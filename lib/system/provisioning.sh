@@ -69,7 +69,15 @@ install_tspu_checker() {
 }
 
 run_ipregion() {
-    bash <(wget -qO- https://ipregion.vrnt.xyz)
+    bash <(wget -qO- https://github.com/Davoyan/ipregion/raw/main/ipregion.sh)
+}
+
+run_ip_check_place() {
+    bash <(curl -Ls https://IP.Check.Place) -l en
+}
+
+run_bench() {
+    bash <(curl -Ls https://bench.sh)
 }
 
 run_node_accelerator() {
