@@ -68,6 +68,10 @@ install_tspu_checker() {
     pause
 }
 
+run_ipregion() {
+    bash <(wget -qO- https://ipregion.vrnt.xyz)
+}
+
 run_node_accelerator() {
     header "Выполнение Node Accelerator"
     check_command curl || { pause; return; }
@@ -87,4 +91,3 @@ run_node_accelerator() {
 
     pause
 }
-
