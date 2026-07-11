@@ -5,11 +5,7 @@ restart_node() {
     check_docker || { pause; return; }
 
     warn "Подключения прервутся примерно на 5-10 секунд."
-    if confirm "Продолжить?"; then
-        restart_remnanode_compose
-    else
-        info "Отменено."
-    fi
+    restart_remnanode_compose
     pause
 }
 
@@ -25,40 +21,6 @@ restart_agent() {
         fi
     else
         error "Папка агента не найдена: $AGENT_DIR"
-    fi
-    pause
-}
-
-restore_backup() {
-    header "Восстановление из бэкапа"
-    local backups=()
-    local num
-
-    mapfile -t backups < <(ls -t "${COMPOSE_FILE}.bak."* 2>/dev/null)
-    if [ ${#backups[@]} -eq 0 ]; then
-        warn "Бэкапы не найдены."
-        pause
-        return
-    fi
-
-    section "Доступные бэкапы"
-    for i in "${!backups[@]}"; do
-        menu_item "$((i + 1))" "${backups[$i]}"
-    done
-    menu_back_item
-    prompt_choice "0-${#backups[@]}"
-    read -r num
-
-    if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -gt 0 ] && [ "$num" -le "${#backups[@]}" ]; then
-        warn "Восстановление: ${backups[$((num - 1))]}"
-        if confirm "Подтвердить?"; then
-            cp "${backups[$((num - 1))]}" "$COMPOSE_FILE"
-            success "Восстановлено. Перезапустите ноду."
-        fi
-    elif [ "$num" = "0" ]; then
-        info "Отменено."
-    else
-        warn "Неверный выбор."
     fi
     pause
 }
@@ -113,6 +75,47 @@ view_errors() {
     check_docker || { pause; return; }
 
     docker exec -it remnanode tail -n +1 -f /var/log/supervisor/xray.out.log
+    pause
+}
+
+view_xray_logs() {
+    header "Просмотр логов Xray"
+    tail -f /var/log/remnanode/access.log
+    pause
+}
+
+install_zapret() {
+    header "Установка zapret"
+    check_command curl || { pause; return; }
+
+    if sh -c "$(curl -fsSL https://raw.githubusercontent.com/Snowy-Fluffy/zapret.installer/refs/heads/main/installer.sh)"; then
+        success "Установка zapret завершена."
+    else
+        error "Установка zapret завершилась с ошибкой."
+    fi
+    pause
+}
+
+install_tspu_checker() {
+    header "Установка tspu checker"
+    check_command apt || { pause; return; }
+    check_command git || { pause; return; }
+    check_command sudo || { pause; return; }
+
+    sudo apt install -y hping3 nmap netcat-openbsd openssl dnsutils curl || {
+        error "Не удалось установить зависимости tspu checker."
+        pause
+        return
+    }
+    cd /opt || { error "Не удалось перейти в /opt."; pause; return; }
+    git clone https://github.com/ku78/tspu-checker.git || {
+        error "Не удалось клонировать tspu-checker."
+        pause
+        return
+    }
+    cd tspu-checker || { error "Каталог /opt/tspu-checker не найден."; pause; return; }
+    chmod +x tspu_check.sh
+    sudo ./tspu_check.sh
     pause
 }
 

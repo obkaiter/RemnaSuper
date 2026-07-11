@@ -44,32 +44,6 @@ fix_logs() {
     pause
 }
 
-check_status() {
-    header "Информация о логах"
-
-    section "Лог-файл"
-    if [ -f "$LOG_DIR/access.log" ]; then
-        local size lines
-        size=$(du -h "$LOG_DIR/access.log" 2>/dev/null | cut -f1)
-        lines=$(wc -l < "$LOG_DIR/access.log" 2>/dev/null)
-        success "$LOG_DIR/access.log ($size, $lines строк)"
-        printf "\n${CYAN}Последние 5 записей:${NC}\n"
-        tail -n 5 "$LOG_DIR/access.log" 2>/dev/null || printf "(пусто)\n"
-    else
-        warn "Файл не найден."
-    fi
-
-    section "Занято места"
-    if [ -d "$LOG_DIR" ]; then
-        du -sh "$LOG_DIR" 2>/dev/null
-        ls -lh "$LOG_DIR"/*.log* 2>/dev/null | awk '{print "  " $9 " -> " $5}'
-    else
-        warn "Директория логов не найдена."
-    fi
-
-    pause
-}
-
 setup_logrotate() {
     header "Настройка ротации логов"
     if [ -f "$ROTATE_CONF" ]; then
@@ -156,34 +130,6 @@ EOF
         error "Ошибка в конфиге. Подробности:"
         logrotate -d "$ROTATE_CONF" 2>&1 | head -8
     fi
-    pause
-}
-
-collect_debug() {
-    header "Сбор диагностики"
-    check_docker || { pause; return; }
-
-    local debug_dir="/tmp/remnawave-debug-$(date +%F_%H%M%S)"
-    local archive="${debug_dir}.tar.gz"
-
-    mkdir -p "$debug_dir"
-    info "Сбор в: $debug_dir"
-    [ -f "$COMPOSE_FILE" ] && cp "$COMPOSE_FILE" "$debug_dir/"
-    if [ -d "$NODE_DIR" ]; then
-        (cd "$NODE_DIR" && docker compose logs --tail 100 > "$debug_dir/node.log" 2>&1)
-    fi
-    if [ -d "$AGENT_DIR" ]; then
-        (cd "$AGENT_DIR" && docker compose logs --tail 100 > "$debug_dir/agent.log" 2>&1)
-    fi
-    if [ -d "$LOG_DIR" ]; then
-        mkdir -p "$debug_dir/remnanode-logs"
-        [ -f "$LOG_DIR/access.log" ] && cp "$LOG_DIR/access.log" "$debug_dir/remnanode-logs/"
-        [ -f "$LOG_DIR/error.log" ] && cp "$LOG_DIR/error.log" "$debug_dir/remnanode-logs/"
-    fi
-
-    tar -czf "$archive" -C "$(dirname "$debug_dir")" "$(basename "$debug_dir")" 2>/dev/null
-    success "Архив: $archive"
-    ls -lh "$archive"
     pause
 }
 
