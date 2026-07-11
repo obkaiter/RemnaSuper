@@ -5,9 +5,9 @@ show_zapret_menu() {
     show_brand "zapret"
 
     section "Управление"
-    menu_item 1 "Установить ss-zapret"
+    menu_item 1 "Установить ss-zapret2"
     menu_item 2 "Поиск стратегии"
-    menu_danger_item 3 "Удалить ss-zapret"
+    menu_danger_item 3 "Удалить ss-zapret2"
 
     section "Навигация"
     menu_back_item
@@ -21,18 +21,17 @@ zapret_menu() {
         show_zapret_menu
         read -r choice
         case $choice in
-            1) run_action "Установка ss-zapret" \
-                "Будет установлен Docker-контейнер vernette/ss-zapret с локальным SOCKS5, проверена его доступность и создан готовый outbound для Xray." \
+            1) run_action "Установка ss-zapret2" \
+                "Будет установлен Docker-контейнер vernette/ss-zapret2 с локальным SOCKS5, проверена его доступность и создан готовый outbound для Xray. При наличии прежнего ss-zapret он будет остановлен, его .env перенесён, а старые файлы сохранены." \
                 install_zapret ;;
-            2) run_action "Поиск стратегии ss-zapret" \
-                "Будут проверены компоненты blockcheck, обработка zapret будет временно остановлена, затем запустится интерактивный поиск nfqws без TPWS. Первая рекомендованная стратегия для каждого протокола автоматически попадёт в NFQWS_OPT, после чего контейнер будет перезапущен." \
+            2) run_action "Поиск стратегии ss-zapret2" \
+                "Будут проверены компоненты blockcheck2, обработка zapret2 будет временно остановлена, затем запустится интерактивный поиск nfqws2. Первая рекомендованная стратегия для каждого протокола автоматически попадёт в NFQWS2_OPT, после чего контейнер будет перезапущен." \
                 search_zapret_strategy ;;
-            3) run_action "Удаление ss-zapret" \
-                "Контейнер ss-zapret будет остановлен, Docker-образ и каталог /opt/ss-zapret со всеми настройками и Xray outbound будут удалены." \
+            3) run_action "Удаление ss-zapret2" \
+                "Контейнер ss-zapret2 будет остановлен, Docker-образ и каталог /opt/ss-zapret2 со всеми настройками и Xray outbound будут удалены. Сохранённый каталог прежней версии /opt/ss-zapret затронут не будет." \
                 uninstall_ss_zapret ;;
             0) return ;;
             *) warn "Неверный выбор."; sleep 1 ;;
         esac
     done
 }
-
