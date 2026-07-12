@@ -69,15 +69,33 @@ install_tspu_checker() {
 }
 
 run_ipregion() {
-    bash <(wget -qO- https://github.com/Davoyan/ipregion/raw/main/ipregion.sh)
+    check_command wget || { pause; return; }
+    check_command bash || { pause; return; }
+
+    if ! bash <(wget -qO- https://github.com/Davoyan/ipregion/raw/main/ipregion.sh); then
+        error "ipregion завершился с ошибкой."
+    fi
+    pause
 }
 
 run_ip_check_place() {
-    bash <(curl -Ls https://IP.Check.Place) -l en
+    check_command curl || { pause; return; }
+    check_command bash || { pause; return; }
+
+    if ! bash <(curl -Ls https://IP.Check.Place) -l en; then
+        error "IP Check Place завершился с ошибкой."
+    fi
+    pause
 }
 
 run_bench() {
-    bash <(curl -Ls https://bench.sh)
+    check_command curl || { pause; return; }
+    check_command bash || { pause; return; }
+
+    if ! bash <(curl -Ls https://bench.sh); then
+        error "bench.sh завершился с ошибкой."
+    fi
+    pause
 }
 
 run_node_accelerator() {
