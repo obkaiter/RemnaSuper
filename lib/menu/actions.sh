@@ -26,9 +26,10 @@ run_action() {
     local title="$1"
     local description="$2"
     local action="$3"
+    shift 3
 
     confirm_action "$title" "$description" || return
-    "$action"
+    "$action" "$@"
 }
 
 run_geofiles_action() {
@@ -40,4 +41,3 @@ run_geofiles_action() {
     "$action"
     pause
 }
-

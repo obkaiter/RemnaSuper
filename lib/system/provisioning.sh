@@ -30,6 +30,42 @@ initial_setup() {
     pause
 }
 
+install_fail2ban() {
+    header "Установка fail2ban"
+    check_command apt || { pause; return; }
+    check_command systemctl || { pause; return; }
+
+    step "Установка fail2ban..."
+    if ! apt -y install fail2ban; then
+        error "Не удалось установить fail2ban."
+        pause
+        return
+    fi
+
+    step "Настройка защиты SSH..."
+    if ! cat >/etc/fail2ban/jail.d/local.conf <<'EOF'
+[sshd]
+enabled = true
+maxretry = 4
+bantime = 1h
+findtime = 10m
+EOF
+    then
+        error "Не удалось записать /etc/fail2ban/jail.d/local.conf."
+        pause
+        return
+    fi
+
+    step "Запуск fail2ban..."
+    if systemctl enable --now fail2ban; then
+        success "fail2ban установлен, настроен и запущен."
+    else
+        error "Не удалось включить и запустить fail2ban."
+    fi
+
+    pause
+}
+
 install_remnawave_reverse_proxy() {
     header "Установка remnawave-reverse-proxy"
     check_command curl || { pause; return; }
@@ -99,20 +135,47 @@ run_bench() {
 }
 
 run_node_accelerator() {
-    header "Выполнение Node Accelerator"
+    local action="$1"
+    local target="${2:-}"
+    local installer_url="https://raw.githubusercontent.com/jestivald/node-accelerator/main/install.sh"
+    local tmp_dir installer exit_code
+
+    header "Node Accelerator"
     check_command curl || { pause; return; }
+    check_command bash || { pause; return; }
+    check_command mktemp || { pause; return; }
     check_command sudo || { pause; return; }
 
-    step "Запуск Node Accelerator..."
-    curl -fsSL https://raw.githubusercontent.com/jestivald/node-accelerator/main/install.sh | sudo bash -s all
+    if ! tmp_dir="$(mktemp -d)"; then
+        error "Не удалось создать временный каталог для Node Accelerator."
+        pause
+        return
+    fi
+    installer="$tmp_dir/install.sh"
 
-    local pipe_status=("${PIPESTATUS[@]}")
-    local curl_exit="${pipe_status[0]}"
-    local bash_exit="${pipe_status[1]}"
-    if [ "$curl_exit" -eq 0 ] && [ "$bash_exit" -eq 0 ]; then
-        success "Node Accelerator выполнен."
+    step "Скачивание актуального установщика Node Accelerator..."
+    if ! curl -fsSL --connect-timeout 10 --max-time 60 -o "$installer" "$installer_url"; then
+        error "Не удалось скачать установщик Node Accelerator."
+        rmdir "$tmp_dir" 2>/dev/null || true
+        pause
+        return
+    fi
+
+    step "Запуск команды: $action${target:+ $target}..."
+    if [ -n "$target" ]; then
+        sudo bash "$installer" "$action" "$target"
     else
-        error "Node Accelerator завершился с ошибкой. curl: $curl_exit, bash: $bash_exit"
+        sudo bash "$installer" "$action"
+    fi
+    exit_code=$?
+
+    rm -f "$installer"
+    rmdir "$tmp_dir" 2>/dev/null || true
+
+    if [ "$exit_code" -eq 0 ]; then
+        success "Команда Node Accelerator успешно выполнена."
+    else
+        error "Node Accelerator завершился с ошибкой. Код: $exit_code"
     fi
 
     pause
