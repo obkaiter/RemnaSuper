@@ -6,6 +6,7 @@ _remnasuper_load_system_modules() {
 
     source "$module_dir/services.sh"
     source "$module_dir/provisioning.sh"
+    source "$module_dir/connectivity.sh"
     source "$module_dir/xray.sh"
     source "$module_dir/zapret.sh"
     source "$module_dir/certificates.sh"
