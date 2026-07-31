@@ -14,7 +14,7 @@ show_menu() {
 
     section "Управление"
     menu_item 7 "Управление ss-zapret2"
-    menu_item 8 "Установить tspu checker"
+    menu_item 8 "Проверить доступность сервисов"
     menu_item 9 "Установка/удаление geofiles"
     menu_item 10 "Перезапустить ноду"
     menu_item 11 "Перезапустить агента"
@@ -55,9 +55,9 @@ main_menu() {
                 "Будут созданы access.log и error.log, каталог логов подключён к RemnaNode в docker-compose.yml, нода и агент перезапущены, затем будет предложена настройка ротации логов." \
                 fix_logs ;;
             7) zapret_menu ;;
-            8) run_action "Установка tspu checker" \
-                "Будут установлены hping3, nmap, netcat-openbsd, openssl, dnsutils и curl; репозиторий ku78/tspu-checker будет клонирован в /opt/tspu-checker, затем tspu_check.sh будет запущен." \
-                install_tspu_checker ;;
+            8) run_action "Проверка доступности сервисов" \
+                "Встроенная диагностика проверит Discord, YouTube, Telegram и Instagram: DNS-адреса, ICMP-пинг, HTTP-статус, конечный IP и задержки DNS/TCP/TLS/TTFB. Внешние скрипты и пакеты не скачиваются и не устанавливаются." \
+                run_connectivity_check ;;
             9) geofiles_menu ;;
             10) run_action "Перезапуск ноды" \
                 "Docker Compose перезапустит сервисы RemnaNode. Текущие подключения могут прерваться на 5-10 секунд." \

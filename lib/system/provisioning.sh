@@ -81,29 +81,6 @@ install_remnawave_reverse_proxy() {
     pause
 }
 
-install_tspu_checker() {
-    header "Установка tspu checker"
-    check_command apt || { pause; return; }
-    check_command git || { pause; return; }
-    check_command sudo || { pause; return; }
-
-    sudo apt install -y hping3 nmap netcat-openbsd openssl dnsutils curl || {
-        error "Не удалось установить зависимости tspu checker."
-        pause
-        return
-    }
-    cd /opt || { error "Не удалось перейти в /opt."; pause; return; }
-    git clone https://github.com/ku78/tspu-checker.git || {
-        error "Не удалось клонировать tspu-checker."
-        pause
-        return
-    }
-    cd tspu-checker || { error "Каталог /opt/tspu-checker не найден."; pause; return; }
-    chmod +x tspu_check.sh
-    sudo ./tspu_check.sh
-    pause
-}
-
 run_ipregion() {
     check_command wget || { pause; return; }
     check_command bash || { pause; return; }
