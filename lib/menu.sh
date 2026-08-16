@@ -8,6 +8,7 @@ _remnasuper_load_menu_modules() {
     source "$module_dir/zapret.sh"
     source "$module_dir/geofiles.sh"
     source "$module_dir/node_accelerator.sh"
+    source "$module_dir/shaping.sh"
     source "$module_dir/main.sh"
 }
 

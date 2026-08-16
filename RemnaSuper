@@ -23,6 +23,7 @@ source "$APP_DIR/lib/update.sh"
 source "$APP_DIR/lib/logs.sh"
 source "$APP_DIR/lib/system.sh"
 source "$APP_DIR/lib/geofiles.sh"
+source "$APP_DIR/lib/shaping.sh"
 source "$APP_DIR/lib/menu.sh"
 
 main() {

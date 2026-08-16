@@ -116,12 +116,21 @@ run_node_accelerator() {
     local target="${2:-}"
     local installer_url="https://raw.githubusercontent.com/jestivald/node-accelerator/main/install.sh"
     local tmp_dir installer exit_code
+    local restart_shaper=0
 
     header "Node Accelerator"
     check_command curl || { pause; return; }
     check_command bash || { pause; return; }
     check_command mktemp || { pause; return; }
     check_command sudo || { pause; return; }
+
+    case "$action:$target" in
+        optimize:|all:|rollback:optimize|rollback:all)
+            if command -v shaper_service_active >/dev/null 2>&1 && shaper_service_active; then
+                restart_shaper=1
+            fi
+            ;;
+    esac
 
     if ! tmp_dir="$(mktemp -d)"; then
         error "Не удалось создать временный каталог для Node Accelerator."
@@ -148,6 +157,15 @@ run_node_accelerator() {
 
     rm -f "$installer"
     rmdir "$tmp_dir" 2>/dev/null || true
+
+    if [ "$restart_shaper" -eq 1 ]; then
+        step "Повторное применение fq/eBPF после сетевых настроек Node Accelerator..."
+        if systemctl restart "$SHAPER_SERVICE_NAME"; then
+            success "Шейпер трафика повторно применён."
+        else
+            warn "Node Accelerator завершён, но шейпер не перезапустился. Проверьте его журнал в меню."
+        fi
+    fi
 
     if [ "$exit_code" -eq 0 ]; then
         success "Команда Node Accelerator успешно выполнена."
