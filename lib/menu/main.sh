@@ -16,19 +16,20 @@ show_menu() {
     menu_item 7 "Управление ss-zapret2"
     menu_item 8 "Проверить доступность сервисов"
     menu_item 9 "Установка/удаление geofiles"
-    menu_item 10 "Перезапустить ноду"
-    menu_item 11 "Перезапустить агента"
+    menu_item 10 "Управление шейпером трафика"
+    menu_item 11 "Перезапустить ноду"
+    menu_item 12 "Перезапустить агента"
 
     section "Диагностика"
-    menu_item 12 "Запустить ipregion"
-    menu_item 13 "IP Check Place"
-    menu_item 14 "Проверка скорости канала (bench.sh)"
-    menu_item 15 "Просмотр ошибок Xray"
-    menu_item 16 "Просмотр логов Xray"
+    menu_item 13 "Запустить ipregion"
+    menu_item 14 "IP Check Place"
+    menu_item 15 "Проверка скорости канала (bench.sh)"
+    menu_item 16 "Просмотр ошибок Xray"
+    menu_item 17 "Просмотр логов Xray"
 
     section "Навигация"
     menu_exit_item
-    prompt_choice "0-16"
+    prompt_choice "0-17"
 }
 
 main_menu() {
@@ -59,25 +60,26 @@ main_menu() {
                 "Встроенная диагностика проверит Discord, YouTube, Telegram и Instagram: DNS-адреса, ICMP-пинг, HTTP-статус, конечный IP и задержки DNS/TCP/TLS/TTFB. Внешние скрипты и пакеты не скачиваются и не устанавливаются." \
                 run_connectivity_check ;;
             9) geofiles_menu ;;
-            10) run_action "Перезапуск ноды" \
+            10) shaper_menu ;;
+            11) run_action "Перезапуск ноды" \
                 "Docker Compose перезапустит сервисы RemnaNode. Текущие подключения могут прерваться на 5-10 секунд." \
                 restart_node ;;
-            11) run_action "Перезапуск агента" \
+            12) run_action "Перезапуск агента" \
                 "Docker Compose перезапустит сервисы агента в /opt/remnawave/node-agent." \
                 restart_agent ;;
-            12) run_action "Запуск ipregion" \
+            13) run_action "Запуск ipregion" \
                 "Будет скачан и запущен скрипт ipregion из репозитория Davoyan/ipregion." \
                 run_ipregion ;;
-            13) run_action "IP Check Place" \
+            14) run_action "IP Check Place" \
                 "Будет скачан и запущен диагностический скрипт IP Check Place на английском языке." \
                 run_ip_check_place ;;
-            14) run_action "Проверка скорости канала (bench.sh)" \
+            15) run_action "Проверка скорости канала (bench.sh)" \
                 "Будет скачан и запущен скрипт bench.sh для проверки скорости канала." \
                 run_bench ;;
-            15) run_action "Просмотр ошибок Xray" \
+            16) run_action "Просмотр ошибок Xray" \
                 "Будет открыт непрерывный вывод /var/log/supervisor/xray.out.log из контейнера remnanode. Для выхода нажмите Ctrl+C." \
                 view_errors ;;
-            16) run_action "Просмотр логов Xray" \
+            17) run_action "Просмотр логов Xray" \
                 "Будет выполнена команда tail -f /var/log/remnanode/access.log. Для выхода нажмите Ctrl+C." \
                 view_xray_logs ;;
             0) run_action "Выход" \
