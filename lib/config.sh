@@ -28,3 +28,13 @@ ZAPRET_SERVICE="ss-zapret2"
 ZAPRET_CONTAINER="zapret2-proxy"
 ZAPRET_CONTAINER_DIR="/opt/zapret2"
 ZAPRET_OUTBOUND_FILE="$ZAPRET_DIR/xray-outbound.json"
+
+TOR_DIR="/opt/remnasuper-tor"
+TOR_CONFIG_DIR="/etc/tor/torrc.d"
+TOR_CONFIG_FILE="$TOR_CONFIG_DIR/remnasuper.conf"
+TOR_MAIN_CONFIG="/etc/tor/torrc"
+TOR_OUTBOUND_FILE="$TOR_DIR/xray-outbound.json"
+TOR_PACKAGE_MARKER="$TOR_DIR/packages-installed-by-remnasuper"
+TOR_COOKIE_FILE="/run/tor/control.authcookie"
+TOR_SOCKS_PORT=9050
+TOR_CONTROL_PORT=9051
