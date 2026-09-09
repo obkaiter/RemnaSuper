@@ -38,3 +38,13 @@ TOR_PACKAGE_MARKER="$TOR_DIR/packages-installed-by-remnasuper"
 TOR_COOKIE_FILE="/run/tor/control.authcookie"
 TOR_SOCKS_PORT=9050
 TOR_CONTROL_PORT=9051
+
+PSIPHON_REPO="Chara-Freedom/vps-psiphon"
+PSIPHON_BRANCH="main"
+PSIPHON_INSTALLER_URL="https://raw.githubusercontent.com/${PSIPHON_REPO}/${PSIPHON_BRANCH}/psiphon_install.sh"
+PSIPHON_DIR="/opt/vps-psiphon"
+PSIPHON_ENV_FILE="/etc/default/vps-psiphon"
+PSIPHON_CLI="/usr/local/sbin/vps-psiphon"
+PSIPHON_SERVICE="vps-psiphon.service"
+PSIPHON_OUTBOUND_FILE="$PSIPHON_DIR/xray-outbound.json"
+PSIPHON_SUPPORTED_REGIONS="AT AU BE BR CA CH CZ DE DK ES FR GB ID IE IN IT JP NL NO PL RS SE SG US"
