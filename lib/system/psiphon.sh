@@ -165,7 +165,7 @@ install_psiphon() {
     fi
 
     if ! head -n 1 "$installer" | grep -qx '#!/usr/bin/env bash' ||
-        ! grep -Fq 'CONF_DIR=/opt/vps-psiphon/config' "$installer" ||
+        ! grep -Fq 'CONF_DIR="/opt/$P/config"' "$installer" ||
         ! grep -Fq 'vps-psiphon.service' "$installer" ||
         ! grep -Fq 'uninstall)' "$installer"; then
         error "Загруженный файл не похож на ожидаемый установщик vps-psiphon."
