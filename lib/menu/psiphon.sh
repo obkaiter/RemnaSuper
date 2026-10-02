@@ -2,10 +2,10 @@
 
 show_psiphon_menu() {
     clear
-    show_brand "Управление Psiphon"
+    show_brand "Управление Psiphon — подключение №$PSIPHON_INSTANCE"
 
     section "Управление"
-    menu_item 1 "Установить Psiphon"
+    menu_item 1 "Установить или переустановить это подключение"
     menu_item 2 "Показать состояние"
     menu_item 3 "Сменить выходной IP"
     menu_item 4 "Выбрать регион выхода"
@@ -16,10 +16,91 @@ show_psiphon_menu() {
     menu_item 9 "Показать логи watchdog"
     menu_item 10 "Показать Xray outbound"
     menu_danger_item 11 "Удалить Psiphon"
+    menu_item 12 "Выбрать другое подключение"
+    menu_item 13 "Добавить подключение"
 
     section "Навигация"
     menu_back_item
-    prompt_choice "0-11"
+    prompt_choice "0-13"
+}
+
+select_psiphon_connection() {
+    local saved_instance="$PSIPHON_INSTANCE"
+    local instances
+    local instance
+    local choice
+
+    header "Выбор подключения Psiphon"
+    instances="$(list_psiphon_instances)"
+    if [ -z "$instances" ]; then
+        warn "Установленные подключения Psiphon не найдены."
+        pause
+        return
+    fi
+
+    section "Найденные подключения"
+    while IFS= read -r instance; do
+        [ -n "$instance" ] || continue
+        set_psiphon_instance "$instance" || continue
+        if [ -x "$PSIPHON_CLI" ] && systemctl is-active --quiet "$PSIPHON_SERVICE"; then
+            printf "  №%-2s  запущено  (%s)\n" "$instance" "$PSIPHON_SERVICE"
+        elif [ -x "$PSIPHON_CLI" ]; then
+            printf "  №%-2s  установлено, не запущено  (%s)\n" "$instance" "$PSIPHON_SERVICE"
+        else
+            printf "  №%-2s  неполная установка\n" "$instance"
+        fi
+    done <<< "$instances"
+
+    printf "\nВведите номер подключения или 0 для отмены: "
+    read -r choice
+    if [ "$choice" = "0" ] || [ -z "$choice" ]; then
+        set_psiphon_instance "$saved_instance"
+        return
+    fi
+    if ! [[ "$choice" =~ ^([1-9]|[1-9][0-9])$ ]] || ! psiphon_instance_exists "$choice"; then
+        error "Подключение с номером '${choice:-пусто}' не найдено."
+        set_psiphon_instance "$saved_instance"
+        pause
+        return
+    fi
+    set_psiphon_instance "$choice"
+    success "Выбрано подключение Psiphon №$PSIPHON_INSTANCE."
+    sleep 1
+}
+
+add_psiphon_connection() {
+    local saved_instance="$PSIPHON_INSTANCE"
+    local suggested_instance
+    local instance
+
+    suggested_instance="$(next_psiphon_instance)" || {
+        error "Достигнут предел в 99 подключений Psiphon."
+        pause
+        return
+    }
+    printf "Номер нового подключения [${suggested_instance}]: "
+    read -r instance
+    instance="${instance:-$suggested_instance}"
+
+    if ! [[ "$instance" =~ ^([1-9]|[1-9][0-9])$ ]]; then
+        error "Номер подключения должен быть от 1 до 99."
+        pause
+        return
+    fi
+    if psiphon_instance_exists "$instance"; then
+        error "Подключение №$instance уже существует. Выберите его для управления или укажите другой номер."
+        pause
+        return
+    fi
+
+    set_psiphon_instance "$instance" || { pause; return; }
+    run_action "Добавление подключения Psiphon №$instance" \
+        "Будет загружен и запущен актуальный установщик Chara-Freedom/vps-psiphon с параметрами --instance $instance --no-http. Он создаст отдельные контейнер, systemd-сервис, watchdog, настройки и SOCKS5-порт, затем сохранит отдельный Xray outbound с тегом $PSIPHON_OUTBOUND_TAG. HTTP-прокси публиковаться не будет. Для использования подключения добавьте выведенный outbound в конфигурацию Xray и настройте маршрутизацию." \
+        install_psiphon
+
+    if ! psiphon_instance_exists "$instance"; then
+        set_psiphon_instance "$saved_instance"
+    fi
 }
 
 psiphon_menu() {
@@ -30,7 +111,7 @@ psiphon_menu() {
         read -r choice
         case $choice in
             1) run_action "Установка Psiphon" \
-                "Будет скачан и запущен актуальный установщик из репозитория Chara-Freedom/vps-psiphon. Он установит Docker-контейнер Psiphon, systemd-сервис и watchdog, опубликует SOCKS5 только на приватном адресе хоста и создаст Xray outbound для TCP-трафика. HTTP-прокси публиковаться не будет." \
+                "Будет скачан и запущен актуальный установщик из репозитория Chara-Freedom/vps-psiphon для подключения №$PSIPHON_INSTANCE. Он установит или обновит его Docker-контейнер, systemd-сервис, watchdog, SOCKS5 и Xray outbound для TCP-трафика. HTTP-прокси публиковаться не будет." \
                 install_psiphon ;;
             2) run_action "Состояние Psiphon" \
                 "Будут показаны состояния контейнера, сервиса и watchdog, SOCKS5-адрес, регион, выходной IP, оценка страны Google, наличие captcha и объём трафика. Для проверки выполняются сетевые запросы через туннель." \
@@ -57,11 +138,13 @@ psiphon_menu() {
                 "Будет запрошено количество строк и показан конец журнала проверок и ротаций watchdog. Системные настройки изменены не будут." \
                 show_psiphon_watchdog_logs ;;
             10) run_action "Xray outbound для Psiphon" \
-                "JSON-outbound с тегом psiphon-out будет обновлён из текущих SOCKS5-настроек Psiphon и показан для добавления в массив outbounds конфигурации Xray. Работа сервисов и сетевые настройки изменены не будут." \
+                "JSON-outbound с тегом $PSIPHON_OUTBOUND_TAG будет обновлён из SOCKS5-настроек подключения №$PSIPHON_INSTANCE и показан для добавления в массив outbounds конфигурации Xray. Работа сервисов и сетевые настройки изменены не будут." \
                 show_psiphon_outbound ;;
             11) run_action "Удаление Psiphon" \
-                "Штатная команда vps-psiphon uninstall остановит и удалит сервисы, watchdog, контейнер, Docker-образ, конфигурацию, состояние, логи и Xray outbound Psiphon." \
+                "Штатная команда $PSIPHON_CLI uninstall остановит и удалит сервисы, watchdog, контейнер, конфигурацию, состояние, логи и Xray outbound только подключения №$PSIPHON_INSTANCE." \
                 uninstall_psiphon ;;
+            12) select_psiphon_connection ;;
+            13) add_psiphon_connection ;;
             0) return ;;
             *) warn "Неверный выбор."; sleep 1 ;;
         esac

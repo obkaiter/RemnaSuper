@@ -1,5 +1,68 @@
 #!/usr/bin/env bash
 
+PSIPHON_INSTANCE="${PSIPHON_INSTANCE:-1}"
+PSIPHON_OUTBOUND_TAG="psiphon-out"
+
+set_psiphon_instance() {
+    local instance="$1"
+
+    if [[ ! "$instance" =~ ^([1-9]|[1-9][0-9])$ ]]; then
+        error "Номер подключения Psiphon должен быть от 1 до 99."
+        return 1
+    fi
+
+    PSIPHON_INSTANCE="$instance"
+    if [ "$instance" = "1" ]; then
+        PSIPHON_DIR="/opt/vps-psiphon"
+        PSIPHON_ENV_FILE="/etc/default/vps-psiphon"
+        PSIPHON_CLI="/usr/local/sbin/vps-psiphon"
+        PSIPHON_SERVICE="vps-psiphon.service"
+        PSIPHON_OUTBOUND_TAG="psiphon-out"
+    else
+        PSIPHON_DIR="/opt/vps-psiphon-$instance"
+        PSIPHON_ENV_FILE="/etc/default/vps-psiphon-$instance"
+        PSIPHON_CLI="/usr/local/sbin/vps-psiphon-$instance"
+        PSIPHON_SERVICE="vps-psiphon-$instance.service"
+        PSIPHON_OUTBOUND_TAG="psiphon-out-$instance"
+    fi
+    PSIPHON_OUTBOUND_FILE="$PSIPHON_DIR/xray-outbound.json"
+}
+
+psiphon_instance_exists() {
+    local instance="$1"
+    local saved_instance="$PSIPHON_INSTANCE"
+    local result
+
+    set_psiphon_instance "$instance" || return 1
+    [ -e "$PSIPHON_ENV_FILE" ] || [ -x "$PSIPHON_CLI" ] ||
+        [ -e "/etc/systemd/system/$PSIPHON_SERVICE" ] || [ -d "$PSIPHON_DIR" ]
+    result=$?
+    set_psiphon_instance "$saved_instance" || return 1
+    return "$result"
+}
+
+list_psiphon_instances() {
+    local instance
+    for instance in $(seq 1 99); do
+        if psiphon_instance_exists "$instance"; then
+            printf '%s\n' "$instance"
+        fi
+    done
+}
+
+next_psiphon_instance() {
+    local instance
+    for instance in $(seq 1 99); do
+        if ! psiphon_instance_exists "$instance"; then
+            printf '%s\n' "$instance"
+            return 0
+        fi
+    done
+    return 1
+}
+
+set_psiphon_instance "${PSIPHON_INSTANCE:-1}"
+
 read_psiphon_setting() {
     local key="$1"
 
@@ -10,12 +73,14 @@ write_psiphon_outbound() {
     local bind_address
     local socks_port
     local tmp_file
+    local expected_dir="/opt/vps-psiphon"
 
     if [ ! -r "$PSIPHON_ENV_FILE" ]; then
         error "Конфигурация Psiphon не найдена: $PSIPHON_ENV_FILE"
         return 1
     fi
-    if [ "$PSIPHON_DIR" != "/opt/vps-psiphon" ]; then
+    [ "$PSIPHON_INSTANCE" = "1" ] || expected_dir="/opt/vps-psiphon-$PSIPHON_INSTANCE"
+    if [ "$PSIPHON_DIR" != "$expected_dir" ]; then
         error "Обнаружен небезопасный путь для Xray outbound Psiphon."
         return 1
     fi
@@ -36,7 +101,7 @@ write_psiphon_outbound() {
     tmp_file="$(mktemp "$PSIPHON_DIR/.xray-outbound.XXXXXX")" || return 1
     if ! cat > "$tmp_file" << EOF
 {
-  "tag": "psiphon-out",
+  "tag": "$PSIPHON_OUTBOUND_TAG",
   "protocol": "socks",
   "settings": {
     "address": "$bind_address",
@@ -175,8 +240,12 @@ install_psiphon() {
         return
     fi
 
-    step "Запуск установщика Psiphon без публикации HTTP-прокси..."
-    bash "$installer" --no-http
+    step "Запуск установщика Psiphon №$PSIPHON_INSTANCE без публикации HTTP-прокси..."
+    if [ "$PSIPHON_INSTANCE" = "1" ]; then
+        bash "$installer" --no-http
+    else
+        bash "$installer" --no-http --instance "$PSIPHON_INSTANCE"
+    fi
     exit_code=$?
 
     rm -f -- "$installer"
@@ -200,10 +269,10 @@ install_psiphon() {
 
     exit_ip="$(psiphon_exit_ip || true)"
     if [ -n "$exit_ip" ]; then
-        success "Psiphon установлен и выводит трафик через IP $exit_ip."
+        success "Подключение Psiphon №$PSIPHON_INSTANCE установлено; выходной IP: $exit_ip."
     else
         warn "Psiphon установлен, но выходной IP пока не удалось проверить."
-        info "Состояние туннеля можно проверить командой: vps-psiphon"
+        info "Состояние туннеля можно проверить командой: $PSIPHON_CLI status"
     fi
     info "Xray outbound: $PSIPHON_OUTBOUND_FILE"
     section "Готовый outbound для Xray"
@@ -410,9 +479,16 @@ show_psiphon_outbound() {
 uninstall_psiphon() {
     header "Удаление Psiphon"
     local exit_code
+    local expected_dir="/opt/vps-psiphon"
+    local expected_cli="/usr/local/sbin/vps-psiphon"
 
-    if [ "$PSIPHON_DIR" != "/opt/vps-psiphon" ] ||
-        [ "$PSIPHON_CLI" != "/usr/local/sbin/vps-psiphon" ]; then
+    if [ "$PSIPHON_INSTANCE" != "1" ]; then
+        expected_dir="/opt/vps-psiphon-$PSIPHON_INSTANCE"
+        expected_cli="/usr/local/sbin/vps-psiphon-$PSIPHON_INSTANCE"
+    fi
+
+    if [ "$PSIPHON_DIR" != "$expected_dir" ] ||
+        [ "$PSIPHON_CLI" != "$expected_cli" ]; then
         error "Обнаружены небезопасные пути удаления Psiphon."
         pause
         return
@@ -438,6 +514,6 @@ uninstall_psiphon() {
         return
     fi
 
-    success "Psiphon, его сервисы, контейнер, настройки и Xray outbound удалены."
+    success "Подключение Psiphon №$PSIPHON_INSTANCE, его сервисы, контейнер, настройки и Xray outbound удалены."
     pause
 }
