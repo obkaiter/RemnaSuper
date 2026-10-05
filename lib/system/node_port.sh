@@ -222,7 +222,7 @@ _node_port_restore_compose() {
 }
 
 change_node_port() {
-    local raw_port requested_port old_port new_port
+    local raw_port requested_port old_port new_port compose_error
     local compose_services ufw_status old_rules old_rule_number source_ip old_protocol old_rule_port
     local -a rule_records=()
     local ss_output backup_file temp_file
@@ -246,8 +246,13 @@ change_node_port() {
     fi
 
     step "Проверка docker-compose.yml до запроса нового порта..."
-    if ! (cd "$NODE_DIR" && docker compose config >/dev/null); then
-        error "Исходная конфигурация Docker Compose не прошла проверку. Порт не запрашивался, изменений нет."
+    if ! compose_error="$(cd "$NODE_DIR" && docker compose config 2>&1 >/dev/null)"; then
+        [ -n "$compose_error" ] && error "$compose_error"
+        if [[ "$compose_error" == *"cycle detected"* ]]; then
+            error "Docker Compose завершил разбор YAML merge-ключей (<<:) с ошибкой cycle detected. Проверьте версию командой docker compose version; обновите Compose или замените <<: [*common, *logging] явными настройками сервисов. Новый порт не запрашивался, изменений нет."
+        else
+            error "Исходная конфигурация Docker Compose не прошла проверку. Порт не запрашивался, изменений нет."
+        fi
         pause
         return 1
     fi
@@ -439,7 +444,7 @@ change_node_port() {
         return 1
     fi
 
-    if ! (cd "$NODE_DIR" && docker compose config >/dev/null); then
+    if ! compose_error="$(cd "$NODE_DIR" && docker compose config 2>&1 >/dev/null)"; then
         if ! _node_port_restore_compose "$backup_file"; then
             error "Новая конфигурация Docker Compose не прошла проверку, и исходный файл не удалось восстановить."
             rm -f "$backup_file"
@@ -447,6 +452,12 @@ change_node_port() {
             return 1
         fi
         rm -f "$backup_file"
+        [ -n "$compose_error" ] && error "$compose_error"
+        if [[ "$compose_error" == *"cycle detected"* ]]; then
+            error "Docker Compose завершил разбор YAML merge-ключей (<<:) с ошибкой cycle detected. Проверьте версию командой docker compose version; обновите Compose или замените <<: [*common, *logging] явными настройками сервисов. Исходный docker-compose.yml восстановлен."
+            pause
+            return 1
+        fi
         error "Новая конфигурация Docker Compose не прошла проверку; исходный файл восстановлен."
         pause
         return 1
