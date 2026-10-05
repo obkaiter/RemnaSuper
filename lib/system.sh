@@ -5,6 +5,7 @@ _remnasuper_load_system_modules() {
     module_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)/system"
 
     source "$module_dir/services.sh"
+    source "$module_dir/node_port.sh"
     source "$module_dir/provisioning.sh"
     source "$module_dir/connectivity.sh"
     source "$module_dir/xray.sh"
