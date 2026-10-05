@@ -245,6 +245,12 @@ change_node_port() {
         return 1
     fi
 
+    step "Проверка docker-compose.yml до запроса нового порта..."
+    if ! (cd "$NODE_DIR" && docker compose config >/dev/null); then
+        error "Исходная конфигурация Docker Compose не прошла проверку. Порт не запрашивался, изменений нет."
+        pause
+        return 1
+    fi
     if ! compose_services="$(cd "$NODE_DIR" && docker compose config --services 2>/dev/null)"; then
         error "Не удалось проверить конфигурацию RemnaNode через Docker Compose."
         pause
@@ -433,7 +439,7 @@ change_node_port() {
         return 1
     fi
 
-    if ! (cd "$NODE_DIR" && docker compose config >/dev/null 2>&1); then
+    if ! (cd "$NODE_DIR" && docker compose config >/dev/null); then
         if ! _node_port_restore_compose "$backup_file"; then
             error "Новая конфигурация Docker Compose не прошла проверку, и исходный файл не удалось восстановить."
             rm -f "$backup_file"
