@@ -28,7 +28,7 @@ check_command() {
 backup_compose() {
     if [ -f "$COMPOSE_FILE" ]; then
         local backup="${COMPOSE_FILE}.bak.$(date +%F_%H%M%S)"
-        cp "$COMPOSE_FILE" "$backup"
+        cp "$COMPOSE_FILE" "$backup" || return 1
         info "Бэкап docker-compose.yml: $backup"
     fi
 }
