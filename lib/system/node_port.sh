@@ -32,18 +32,18 @@ _node_port_write_compose_value() {
     local destination="$2"
 
     awk -v new_port="$new_port" '
-        /^services:[[:space:]]*(#.*)?$/ { in_services=1; next }
+        /^services:[[:space:]]*(#.*)?$/ { in_services=1; print; next }
         in_services && /^[^[:space:]#][^:]*:/ {
             in_services=0
             in_remnanode=0
             in_environment=0
         }
-        in_services && /^  remnanode:[[:space:]]*$/ { in_remnanode=1; next }
+        in_services && /^  remnanode:[[:space:]]*$/ { in_remnanode=1; print; next }
         in_remnanode && /^  [A-Za-z0-9_.-]+:/ {
             in_remnanode=0
             in_environment=0
         }
-        in_remnanode && /^    environment:[[:space:]]*$/ { in_environment=1; next }
+        in_remnanode && /^    environment:[[:space:]]*$/ { in_environment=1; print; next }
         in_environment && /^    [A-Za-z0-9_.-]+:/ { in_environment=0 }
         in_environment && /^[[:space:]]*-[[:space:]]*NODE_PORT=[0-9]+([[:space:]]+#.*)?$/ {
             sub(/NODE_PORT=[0-9]+/, "NODE_PORT=" new_port)
@@ -113,7 +113,7 @@ _node_port_ufw_rule_ports() {
     ' <<< "$status"
 }
 
-_node_port_ss_listening_ports() {
+_node_port_ss_local_ports() {
     local ss_output="$1"
 
     awk '
@@ -125,11 +125,11 @@ _node_port_ss_listening_ports() {
     ' <<< "$ss_output"
 }
 
-_node_port_is_listening() {
+_node_port_is_in_use() {
     local port="$1"
     local ss_output="$2"
 
-    _node_port_ss_listening_ports "$ss_output" | awk -v wanted="$port" '$0 == wanted { found=1 } END { exit !found }'
+    _node_port_ss_local_ports "$ss_output" | awk -v wanted="$port" '$0 == wanted { found=1 } END { exit !found }'
 }
 
 _node_port_ufw_port_is_configured() {
@@ -157,12 +157,12 @@ _node_port_choose_random() {
     local ss_output="$2"
     local ufw_status="$3"
     local services_output candidate port range_start range_end rule_port
-    local -A listening_ports=() ufw_ports=() service_ports=()
+    local -A used_ports=() ufw_ports=() service_ports=()
     local -a available_ports=()
 
     while IFS= read -r port; do
-        [ -n "$port" ] && listening_ports["$port"]=1
-    done < <(_node_port_ss_listening_ports "$ss_output")
+        [ -n "$port" ] && used_ports["$port"]=1
+    done < <(_node_port_ss_local_ports "$ss_output")
 
     while IFS= read -r port; do
         [ -n "$port" ] || continue
@@ -185,7 +185,7 @@ _node_port_choose_random() {
 
     for ((candidate = 49152; candidate <= 65535; candidate++)); do
         [ "$candidate" = "$old_port" ] && continue
-        [ -n "${listening_ports[$candidate]+x}" ] && continue
+        [ -n "${used_ports[$candidate]+x}" ] && continue
         [ -n "${ufw_ports[$candidate]+x}" ] && continue
         [ -n "${service_ports[$candidate]+x}" ] && continue
         available_ports+=("$candidate")
@@ -223,7 +223,8 @@ _node_port_restore_compose() {
 
 change_node_port() {
     local raw_port requested_port old_port new_port compose_error
-    local compose_services ufw_status old_rules old_rule_number source_ip old_protocol old_rule_port
+    local compose_services node_containers ufw_status old_rules old_rule_number source_ip old_protocol old_rule_port
+    local initial_source_ip initial_protocol
     local -a rule_records=()
     local ss_output backup_file temp_file
     local rollback_status
@@ -235,7 +236,7 @@ change_node_port() {
         pause
         return 1
     fi
-    check_command docker || { pause; return 1; }
+    check_docker || { pause; return 1; }
     check_command ufw || { pause; return 1; }
     check_command ss || { pause; return 1; }
     check_command shuf || { pause; return 1; }
@@ -263,6 +264,12 @@ change_node_port() {
     fi
     if ! grep -Fxq remnanode <<< "$compose_services"; then
         error "В Docker Compose не найден сервис remnanode."
+        pause
+        return 1
+    fi
+    if ! node_containers="$(cd "$NODE_DIR" && docker compose ps --all --quiet remnanode 2>/dev/null)" ||
+        [ -z "$node_containers" ]; then
+        error "Контейнер RemnaNode не найден в проекте Docker Compose. Порт не запрашивался, изменений нет."
         pause
         return 1
     fi
@@ -316,6 +323,8 @@ change_node_port() {
         pause
         return 1
     fi
+    initial_source_ip="$source_ip"
+    initial_protocol="$old_protocol"
 
     warn "Будет изменён порт взаимодействия с панелью. Стандартный порт — 2222; в текущей конфигурации RemnaNode указан порт $old_port."
     info "Разрешённый адрес панели в UFW: $source_ip"
@@ -328,7 +337,7 @@ change_node_port() {
     fi
 
     if [ -z "$requested_port" ]; then
-        if ! ss_output="$(ss -H -lntu 2>/dev/null)"; then
+        if ! ss_output="$(ss -H -antu 2>/dev/null)"; then
             error "Не удалось проверить занятые порты через ss."
             pause
             return 1
@@ -359,7 +368,7 @@ change_node_port() {
             pause
             return 1
         fi
-        if ! ss_output="$(ss -H -lntu 2>/dev/null)"; then
+        if ! ss_output="$(ss -H -antu 2>/dev/null)"; then
             error "Не удалось проверить занятые порты через ss."
             pause
             return 1
@@ -376,8 +385,8 @@ change_node_port() {
         pause
         return 1
     fi
-    if _node_port_is_listening "$new_port" "$ss_output"; then
-        error "Порт $new_port уже занят прослушивающим сервисом. Изменения не внесены."
+    if _node_port_is_in_use "$new_port" "$ss_output"; then
+        error "Порт $new_port уже используется TCP/UDP-сокетом. Изменения не внесены."
         pause
         return 1
     fi
@@ -403,6 +412,11 @@ change_node_port() {
     fi
     if [[ ! "$source_ip" =~ ^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$ ]]; then
         error "В текущем правиле UFW не найден IP-адрес источника. Изменения не внесены."
+        pause
+        return 1
+    fi
+    if [ "$source_ip" != "$initial_source_ip" ] || [ "$old_protocol" != "$initial_protocol" ]; then
+        error "Правило UFW для порта $old_port изменилось после проверки. Изменения не внесены."
         pause
         return 1
     fi
@@ -453,11 +467,6 @@ change_node_port() {
         fi
         rm -f "$backup_file"
         [ -n "$compose_error" ] && error "$compose_error"
-        if [[ "$compose_error" == *"cycle detected"* ]]; then
-            error "Docker Compose завершил разбор YAML merge-ключей (<<:) с ошибкой cycle detected. Проверьте версию командой docker compose version; обновите Compose или замените <<: [*common, *logging] явными настройками сервисов. Исходный docker-compose.yml восстановлен."
-            pause
-            return 1
-        fi
         error "Новая конфигурация Docker Compose не прошла проверку; исходный файл восстановлен."
         pause
         return 1
