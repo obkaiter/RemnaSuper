@@ -55,7 +55,7 @@ ufw() {
             [ ! -f "$test_dir/old-rule" ] || printf '[ 1] 2222/tcp ALLOW IN 138.124.32.28\n'
             [ ! -f "$test_dir/new-rule" ] || printf '[ 1] 59609/tcp ALLOW IN 138.124.32.28\n' ;;
         '--force delete 1') rm -f "$test_dir/old-rule" ;;
-        'allow from 138.124.32.28 to any port 59609 proto tcp') touch "$test_dir/new-rule" ;;
+        'allow from 138.124.32.28 to any port 59609 proto tcp comment Remnawave Panel') touch "$test_dir/new-rule" ;;
         'allow from 138.124.32.28 to any port 2222 proto tcp') touch "$test_dir/old-rule" ;;
         '--force delete allow from 138.124.32.28 to any port 59609 proto tcp')
             rm -f "$test_dir/new-rule" ;;
