@@ -199,9 +199,11 @@ _node_port_restore_ufw_rule() {
     local source_ip="$1"
     local port="$2"
     local protocol="$3"
+    local comment="${4:-}"
     local -a command=(ufw allow from "$source_ip" to any port "$port")
 
     [ -n "$protocol" ] && command+=(proto "$protocol")
+    [ -n "$comment" ] && command+=(comment "$comment")
     "${command[@]}"
 }
 
@@ -489,6 +491,7 @@ change_node_port() {
     step "Разрешение порта $new_port только для $source_ip..."
     local -a allow_command=(ufw allow from "$source_ip" to any port "$new_port")
     [ -n "$old_protocol" ] && allow_command+=(proto "$old_protocol")
+    allow_command+=(comment "Remnawave Panel")
     if ! "${allow_command[@]}"; then
         rollback_status=0
         if ! _node_port_restore_compose "$backup_file"; then
@@ -531,7 +534,7 @@ change_node_port() {
             if ! _node_port_restore_ufw_rule "$source_ip" "$old_port" "$old_protocol"; then
                 error "Не удалось восстановить исходное правило UFW для порта $old_port."
             fi
-            if ! _node_port_restore_ufw_rule "$source_ip" "$new_port" "$old_protocol"; then
+            if ! _node_port_restore_ufw_rule "$source_ip" "$new_port" "$old_protocol" "Remnawave Panel"; then
                 error "Не удалось подтвердить доступ через новое правило UFW для порта $new_port."
             fi
             if ! restart_remnanode_compose; then
