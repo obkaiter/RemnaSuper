@@ -13,6 +13,7 @@ _remnasuper_load_system_modules() {
     source "$module_dir/psiphon.sh"
     source "$module_dir/zapret.sh"
     source "$module_dir/certificates.sh"
+    source "$module_dir/http_redirect.sh"
     source "$module_dir/session.sh"
 }
 

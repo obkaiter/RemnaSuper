@@ -12,7 +12,7 @@
 конфигурации. Перед изменяющими действиями меню показывает описание операции,
 а перед изменением `docker-compose.yml` создаётся резервная копия.
 
-> Текущая версия: `4.5`
+> Текущая версия: `4.7`
 
 ## Содержание
 
@@ -37,6 +37,8 @@
 - Установка официального `remnawave-reverse-proxy`.
 - Смена порта взаимодействия RemnaNode с панелью с обновлением UFW-правила.
 - Подключение сертификатов из `remnawave-nginx` к `RemnaNode`.
+- HTTP 301 с порта 80 на HTTPS: открытие `80/tcp` в UFW, добавление
+  серверного блока в `/opt/remnanode/nginx.conf` и перезапуск RemnaNode.
 - Установка и настройка `fail2ban` для SSH.
 - Исправление и подключение логов RemnaNode с настройкой `logrotate`.
 - Управление [ss-zapret2](https://github.com/vernette/ss-zapret2):
@@ -70,6 +72,8 @@
 
 - Установленный RemnaNode в `/opt/remnanode`.
 - Файл Compose: `/opt/remnanode/docker-compose.yml`.
+- Для перенаправления HTTP: `/opt/remnanode/nginx.conf`, запущенный сервис
+  `remnawave-nginx` и UFW.
 - Docker с Compose plugin (`docker compose`).
 - Для агента RemnaNode: `/opt/remnawave-node-agent`.
 - Для системных операций: `systemd`, `apt-get`, `cron`.
@@ -154,32 +158,33 @@ RemnaSuper. Действия самого меню по-прежнему мог�
 | `1` | `apt-get update`, `apt-get upgrade`, установка `cron`, `mc`, `wget` |
 | `2` | Установка `remnawave-reverse-proxy` из `eGamesAPI/remnawave-reverse-proxy` |
 | `3` | Подключение сертификатов из `remnawave-nginx` к RemnaNode |
-| `4` | Подменю Node Accelerator |
-| `5` | Установка `fail2ban` с защитой SSH |
-| `6` | Создание и подключение `access.log`/`error.log`, перезапуск сервисов и `logrotate` |
-| `7` | Смена порта взаимодействия с панелью; пустой ввод выбирает свободный случайный порт |
+| `4` | HTTP 301 с порта 80 на HTTPS: правило UFW, правка `nginx.conf` и перезапуск ноды |
+| `5` | Подменю Node Accelerator |
+| `6` | Установка `fail2ban` с защитой SSH |
+| `7` | Создание и подключение `access.log`/`error.log`, перезапуск сервисов и `logrotate` |
+| `8` | Смена порта взаимодействия с панелью; пустой ввод выбирает свободный случайный порт |
 
 ### Управление
 
 | Пункт | Действие |
 | --- | --- |
-| `8` | Подменю ss-zapret2 |
-| `9` | Подменю Tor |
-| `10` | Подменю Psiphon |
-| `11` | Проверка доступности Discord, YouTube, Telegram и Instagram |
-| `12` | Установка и удаление geofiles |
-| `13` | Перезапуск контейнеров RemnaNode |
-| `14` | Перезапуск контейнеров node-agent из `/opt/remnawave-node-agent` |
+| `9` | Подменю ss-zapret2 |
+| `10` | Подменю Tor |
+| `11` | Подменю Psiphon |
+| `12` | Проверка доступности Discord, YouTube, Telegram и Instagram |
+| `13` | Установка и удаление geofiles |
+| `14` | Перезапуск контейнеров RemnaNode |
+| `15` | Перезапуск контейнеров node-agent из `/opt/remnawave-node-agent` |
 
 ### Диагностика
 
 | Пункт | Действие |
 | --- | --- |
-| `15` | Запуск внешнего скрипта `ipregion` |
-| `16` | Запуск `IP Check Place` |
-| `17` | Проверка канала через `bench.sh` |
-| `18` | Просмотр `/var/log/supervisor/xray.out.log` в контейнере `remnanode` |
-| `19` | Просмотр `/var/log/remnanode/access.log` в реальном времени |
+| `16` | Запуск внешнего скрипта `ipregion` |
+| `17` | Запуск `IP Check Place` |
+| `18` | Проверка канала через `bench.sh` |
+| `19` | Просмотр `/var/log/supervisor/xray.out.log` в контейнере `remnanode` |
+| `20` | Просмотр `/var/log/remnanode/access.log` в реальном времени |
 
 Во всех подменю `0` возвращает на предыдущий уровень, а в главном меню
 завершает работу программы.
@@ -413,6 +418,7 @@ RemnaNode, Docker, Tor, Psiphon и ss-zapret2 находятся за преде
 | Команда запуска | `/usr/local/bin/rs` |
 | RemnaNode | `/opt/remnanode` |
 | Compose RemnaNode | `/opt/remnanode/docker-compose.yml` |
+| Конфигурация nginx RemnaNode | `/opt/remnanode/nginx.conf` |
 | Node-agent | `/opt/remnawave-node-agent` |
 | Логи RemnaNode | `/var/log/remnanode` |
 | Конфигурация logrotate | `/etc/logrotate.d/remnanode` |
