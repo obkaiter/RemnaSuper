@@ -48,3 +48,10 @@ PSIPHON_CLI="/usr/local/sbin/vps-psiphon"
 PSIPHON_SERVICE="vps-psiphon.service"
 PSIPHON_OUTBOUND_FILE="$PSIPHON_DIR/xray-outbound.json"
 PSIPHON_SUPPORTED_REGIONS="AT AU BE BR CA CH CZ DE DK ES FR GB ID IE IN IT JP NL NO PL RS SE SG US"
+
+WG_IFACE="rswg0"
+WG_DIR="/etc/remnasuper-wireguard"
+WG_CONFIG="/etc/wireguard/${WG_IFACE}.conf"
+WG_SYSCTL="/etc/sysctl.d/90-remnasuper-wireguard.conf"
+WG_PORT=51820
+WG_SUBNET="10.77.0"
