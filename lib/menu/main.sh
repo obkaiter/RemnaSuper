@@ -17,21 +17,22 @@ show_menu() {
     menu_item 8 "Управление ss-zapret2"
     menu_item 9 "Управление Tor"
     menu_item 10 "Управление Psiphon"
-    menu_item 11 "Проверить доступность сервисов"
-    menu_item 12 "Установка/удаление geofiles"
-    menu_item 13 "Перезапустить ноду"
-    menu_item 14 "Перезапустить агента"
+    menu_item 11 "Управление WireGuard"
+    menu_item 12 "Проверить доступность сервисов"
+    menu_item 13 "Установка/удаление geofiles"
+    menu_item 14 "Перезапустить ноду"
+    menu_item 15 "Перезапустить агента"
 
     section "Диагностика"
-    menu_item 15 "Запустить ipregion"
-    menu_item 16 "IP Check Place"
-    menu_item 17 "Проверка скорости канала (bench.sh)"
-    menu_item 18 "Просмотр ошибок Xray"
-    menu_item 19 "Просмотр логов Xray"
+    menu_item 16 "Запустить ipregion"
+    menu_item 17 "IP Check Place"
+    menu_item 18 "Проверка скорости канала (bench.sh)"
+    menu_item 19 "Просмотр ошибок Xray"
+    menu_item 20 "Просмотр логов Xray"
 
     section "Навигация"
     menu_exit_item
-    prompt_choice "0-19"
+    prompt_choice "0-20"
 }
 
 main_menu() {
@@ -63,29 +64,30 @@ main_menu() {
             8) zapret_menu ;;
             9) tor_menu ;;
             10) psiphon_menu ;;
-            11) run_action "Проверка доступности сервисов" \
+            11) wireguard_menu ;;
+            12) run_action "Проверка доступности сервисов" \
                 "Встроенная диагностика проверит Discord, YouTube, Telegram и Instagram: DNS-адреса, ICMP-пинг, HTTP-статус, конечный IP и задержки DNS/TCP/TLS/TTFB. Внешние скрипты и пакеты не скачиваются и не устанавливаются." \
                 run_connectivity_check ;;
-            12) geofiles_menu ;;
-            13) run_action "Перезапуск ноды" \
+            13) geofiles_menu ;;
+            14) run_action "Перезапуск ноды" \
                 "Docker Compose перезапустит сервисы RemnaNode. Текущие подключения могут прерваться на 5-10 секунд." \
                 restart_node ;;
-            14) run_action "Перезапуск агента" \
+            15) run_action "Перезапуск агента" \
                 "Docker Compose перезапустит сервисы агента в /opt/remnawave/node-agent." \
                 restart_agent ;;
-            15) run_action "Запуск ipregion" \
+            16) run_action "Запуск ipregion" \
                 "Будет скачан и запущен скрипт ipregion из репозитория Davoyan/ipregion." \
                 run_ipregion ;;
-            16) run_action "IP Check Place" \
+            17) run_action "IP Check Place" \
                 "Будет скачан и запущен диагностический скрипт IP Check Place на английском языке." \
                 run_ip_check_place ;;
-            17) run_action "Проверка скорости канала (bench.sh)" \
+            18) run_action "Проверка скорости канала (bench.sh)" \
                 "Будет скачан и запущен скрипт bench.sh для проверки скорости канала." \
                 run_bench ;;
-            18) run_action "Просмотр ошибок Xray" \
+            19) run_action "Просмотр ошибок Xray" \
                 "Будет открыт непрерывный вывод /var/log/supervisor/xray.out.log из контейнера remnanode. Для выхода нажмите Ctrl+C." \
                 view_errors ;;
-            19) run_action "Просмотр логов Xray" \
+            20) run_action "Просмотр логов Xray" \
                 "Будет выполнена команда tail -f /var/log/remnanode/access.log. Для выхода нажмите Ctrl+C." \
                 view_xray_logs ;;
             0) run_action "Выход" \
