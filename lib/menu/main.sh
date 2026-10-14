@@ -8,30 +8,31 @@ show_menu() {
     menu_item 1 "apt update && apt upgrade"
     menu_item 2 "Установить remnawave-reverse-proxy"
     menu_item 3 "Установить сертификаты в RemnaNode"
-    menu_item 4 "Управление Node Accelerator"
-    menu_item 5 "Установить fail2ban"
-    menu_item 6 "Исправить логи в RemnaNode"
-    menu_item 7 "Сменить порт взаимодействия с панелью"
+    menu_item 4 "HTTP 301 на 80 порте"
+    menu_item 5 "Управление Node Accelerator"
+    menu_item 6 "Установить fail2ban"
+    menu_item 7 "Исправить логи в RemnaNode"
+    menu_item 8 "Сменить порт взаимодействия с панелью"
 
     section "Управление"
-    menu_item 8 "Управление ss-zapret2"
-    menu_item 9 "Управление Tor"
-    menu_item 10 "Управление Psiphon"
-    menu_item 11 "Проверить доступность сервисов"
-    menu_item 12 "Установка/удаление geofiles"
-    menu_item 13 "Перезапустить ноду"
-    menu_item 14 "Перезапустить агента"
+    menu_item 9 "Управление ss-zapret2"
+    menu_item 10 "Управление Tor"
+    menu_item 11 "Управление Psiphon"
+    menu_item 12 "Проверить доступность сервисов"
+    menu_item 13 "Установка/удаление geofiles"
+    menu_item 14 "Перезапустить ноду"
+    menu_item 15 "Перезапустить агента"
 
     section "Диагностика"
-    menu_item 15 "Запустить ipregion"
-    menu_item 16 "IP Check Place"
-    menu_item 17 "Проверка скорости канала (bench.sh)"
-    menu_item 18 "Просмотр ошибок Xray"
-    menu_item 19 "Просмотр логов Xray"
+    menu_item 16 "Запустить ipregion"
+    menu_item 17 "IP Check Place"
+    menu_item 18 "Проверка скорости канала (bench.sh)"
+    menu_item 19 "Просмотр ошибок Xray"
+    menu_item 20 "Просмотр логов Xray"
 
     section "Навигация"
     menu_exit_item
-    prompt_choice "0-19"
+    prompt_choice "0-20"
 }
 
 main_menu() {
@@ -50,42 +51,45 @@ main_menu() {
             3) run_action "Установка сертификатов в RemnaNode" \
                 "Домен сертификата будет найден в docker-compose.yml, файл будет сохранён в бэкап, сертификаты подключены к RemnaNode, после чего нода будет перезапущена." \
                 install_remnanode_certificates ;;
-            4) node_accelerator_menu ;;
-            5) run_action "Установка fail2ban" \
+            4) run_action "HTTP 301 на 80 порте" \
+                "HTTP 301 на 80 порту означает, что сервер отправляет постоянное перенаправление (Moved Permanently) для запросов, приходящих на стандартный незащищенный веб-порт 80 (обычно используемый для HTTP). Будет выполнено ufw allow 80/tcp, в /opt/remnanode/nginx.conf добавлен сервер для перенаправления на HTTPS и перезапущена нода. Текущие подключения могут кратковременно прерваться." \
+                enable_http_redirect ;;
+            5) node_accelerator_menu ;;
+            6) run_action "Установка fail2ban" \
                 "Будет установлен fail2ban, включена защита SSH с четырьмя попытками входа за 10 минут и блокировкой на один час, после чего сервис будет добавлен в автозапуск и запущен." \
                 install_fail2ban ;;
-            6) run_action "Исправление логов RemnaNode" \
+            7) run_action "Исправление логов RemnaNode" \
                 "Будут созданы access.log и error.log, каталог логов подключён к RemnaNode в docker-compose.yml, нода и агент перезапущены, затем будет предложена настройка ротации логов." \
                 fix_logs ;;
-            7) run_action "Смена порта взаимодействия с панелью" \
+            8) run_action "Смена порта взаимодействия с панелью" \
                 "В docker-compose.yml будет изменён порт NODE_PORT, а правило UFW для IP-адреса панели перенесено на новый порт. Если порт не указан, будет выбран свободный случайный порт. Затем нода будет перезапущена; подключения могут прерваться на 5–10 секунд." \
                 change_node_port ;;
-            8) zapret_menu ;;
-            9) tor_menu ;;
-            10) psiphon_menu ;;
-            11) run_action "Проверка доступности сервисов" \
+            9) zapret_menu ;;
+            10) tor_menu ;;
+            11) psiphon_menu ;;
+            12) run_action "Проверка доступности сервисов" \
                 "Встроенная диагностика проверит Discord, YouTube, Telegram и Instagram: DNS-адреса, ICMP-пинг, HTTP-статус, конечный IP и задержки DNS/TCP/TLS/TTFB. Внешние скрипты и пакеты не скачиваются и не устанавливаются." \
                 run_connectivity_check ;;
-            12) geofiles_menu ;;
-            13) run_action "Перезапуск ноды" \
+            13) geofiles_menu ;;
+            14) run_action "Перезапуск ноды" \
                 "Docker Compose перезапустит сервисы RemnaNode. Текущие подключения могут прерваться на 5-10 секунд." \
                 restart_node ;;
-            14) run_action "Перезапуск агента" \
+            15) run_action "Перезапуск агента" \
                 "Docker Compose перезапустит сервисы агента в /opt/remnawave/node-agent." \
                 restart_agent ;;
-            15) run_action "Запуск ipregion" \
+            16) run_action "Запуск ipregion" \
                 "Будет скачан и запущен скрипт ipregion из репозитория Davoyan/ipregion." \
                 run_ipregion ;;
-            16) run_action "IP Check Place" \
+            17) run_action "IP Check Place" \
                 "Будет скачан и запущен диагностический скрипт IP Check Place на английском языке." \
                 run_ip_check_place ;;
-            17) run_action "Проверка скорости канала (bench.sh)" \
+            18) run_action "Проверка скорости канала (bench.sh)" \
                 "Будет скачан и запущен скрипт bench.sh для проверки скорости канала." \
                 run_bench ;;
-            18) run_action "Просмотр ошибок Xray" \
+            19) run_action "Просмотр ошибок Xray" \
                 "Будет открыт непрерывный вывод /var/log/supervisor/xray.out.log из контейнера remnanode. Для выхода нажмите Ctrl+C." \
                 view_errors ;;
-            19) run_action "Просмотр логов Xray" \
+            20) run_action "Просмотр логов Xray" \
                 "Будет выполнена команда tail -f /var/log/remnanode/access.log. Для выхода нажмите Ctrl+C." \
                 view_xray_logs ;;
             0) run_action "Выход" \
