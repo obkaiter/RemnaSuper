@@ -12,27 +12,27 @@ show_menu() {
     menu_item 5 "Управление Node Accelerator"
     menu_item 6 "Установить fail2ban"
     menu_item 7 "Исправить логи в RemnaNode"
-    menu_item 8 "Сменить порт взаимодействия с панелью"
+    menu_item 8 "Установка/удаление geofiles"
+    menu_item 9 "Сменить порт взаимодействия с панелью"
 
     section "Управление"
-    menu_item 9 "Управление ss-zapret2"
-    menu_item 10 "Управление Tor"
-    menu_item 11 "Управление Psiphon"
-    menu_item 12 "Проверить доступность сервисов"
-    menu_item 13 "Установка/удаление geofiles"
+    menu_item 10 "Управление ss-zapret2"
+    menu_item 11 "Управление Tor"
+    menu_item 12 "Управление Psiphon"
+    menu_item 13 "Проверить доступность сервисов"
     menu_item 14 "Перезапустить ноду"
     menu_item 15 "Перезапустить агента"
 
     section "Диагностика"
-    menu_item 16 "Запустить ipregion"
-    menu_item 17 "IP Check Place"
-    menu_item 18 "Проверка скорости канала (bench.sh)"
-    menu_item 19 "Просмотр ошибок Xray"
-    menu_item 20 "Просмотр логов Xray"
+    menu_item 17 "Запустить ipregion"
+    menu_item 18 "IP Check Place"
+    menu_item 19 "Проверка скорости канала (bench.sh)"
+    menu_item 20 "Просмотр ошибок Xray"
+    menu_item 21 "Просмотр логов Xray"
 
     section "Навигация"
     menu_exit_item
-    prompt_choice "0-20"
+    prompt_choice "0-21"
 }
 
 main_menu() {
@@ -61,35 +61,35 @@ main_menu() {
             7) run_action "Исправление логов RemnaNode" \
                 "Будут созданы access.log и error.log, каталог логов подключён к RemnaNode в docker-compose.yml, нода и агент перезапущены, затем будет предложена настройка ротации логов." \
                 fix_logs ;;
-            8) run_action "Смена порта взаимодействия с панелью" \
+            8) geofiles_menu ;;
+            9) run_action "Смена порта взаимодействия с панелью" \
                 "В docker-compose.yml будет изменён порт NODE_PORT, а правило UFW для IP-адреса панели перенесено на новый порт. Если порт не указан, будет выбран свободный случайный порт. Затем нода будет перезапущена; подключения могут прерваться на 5–10 секунд." \
                 change_node_port ;;
-            9) zapret_menu ;;
-            10) tor_menu ;;
-            11) psiphon_menu ;;
-            12) run_action "Проверка доступности сервисов" \
+            10) zapret_menu ;;
+            11) tor_menu ;;
+            12) psiphon_menu ;;
+            13) run_action "Проверка доступности сервисов" \
                 "Встроенная диагностика проверит Discord, YouTube, Telegram и Instagram: DNS-адреса, ICMP-пинг, HTTP-статус, конечный IP и задержки DNS/TCP/TLS/TTFB. Внешние скрипты и пакеты не скачиваются и не устанавливаются." \
                 run_connectivity_check ;;
-            13) geofiles_menu ;;
             14) run_action "Перезапуск ноды" \
                 "Docker Compose перезапустит сервисы RemnaNode. Текущие подключения могут прерваться на 5-10 секунд." \
                 restart_node ;;
             15) run_action "Перезапуск агента" \
                 "Docker Compose перезапустит сервисы агента в /opt/remnawave/node-agent." \
                 restart_agent ;;
-            16) run_action "Запуск ipregion" \
+            17) run_action "Запуск ipregion" \
                 "Будет скачан и запущен скрипт ipregion из репозитория Davoyan/ipregion." \
                 run_ipregion ;;
-            17) run_action "IP Check Place" \
+            18) run_action "IP Check Place" \
                 "Будет скачан и запущен диагностический скрипт IP Check Place на английском языке." \
                 run_ip_check_place ;;
-            18) run_action "Проверка скорости канала (bench.sh)" \
+            19) run_action "Проверка скорости канала (bench.sh)" \
                 "Будет скачан и запущен скрипт bench.sh для проверки скорости канала." \
                 run_bench ;;
-            19) run_action "Просмотр ошибок Xray" \
+            20) run_action "Просмотр ошибок Xray" \
                 "Будет открыт непрерывный вывод /var/log/supervisor/xray.out.log из контейнера remnanode. Для выхода нажмите Ctrl+C." \
                 view_errors ;;
-            20) run_action "Просмотр логов Xray" \
+            21) run_action "Просмотр логов Xray" \
                 "Будет выполнена команда tail -f /var/log/remnanode/access.log. Для выхода нажмите Ctrl+C." \
                 view_xray_logs ;;
             0) run_action "Выход" \
