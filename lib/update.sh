@@ -48,8 +48,19 @@ install_from_dir() {
         return 1
     fi
 
-    if [ ! -f "$src_dir/RemnaSuper" ] || [ ! -f "$src_dir/VERSION" ] || [ ! -d "$src_dir/lib" ]; then
+    if [ ! -f "$src_dir/RemnaSuper" ] || [ ! -f "$src_dir/VERSION" ] || [ ! -d "$src_dir/lib" ] ||
+       [ ! -f "$src_dir/lib/system/network_diagnostics/agent.py" ] ||
+       [ ! -f "$src_dir/lib/system/network_diagnostics/safety.py" ] ||
+       [ ! -f "$src_dir/lib/system/network_diagnostics/protocol.py" ] ||
+       [ ! -f "$src_dir/lib/system/network_diagnostics/measure.py" ] ||
+       [ ! -f "$src_dir/lib/system/network_diagnostics/report.py" ]; then
         error "В архиве обновления нет обязательных файлов."
+        return 1
+    fi
+
+    if [ -d /var/lib/remnasuper/network-diagnostics/sessions ] &&
+       [ -n "$(find /var/lib/remnasuper/network-diagnostics/sessions -name journal.json -print -quit)" ]; then
+        error "Идёт сетевая диагностика или ожидается очистка её ресурсов. Обновление отложено."
         return 1
     fi
 

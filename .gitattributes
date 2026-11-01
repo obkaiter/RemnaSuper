@@ -1,5 +1,8 @@
 * text=auto
+.gitattributes text eol=lf
 RemnaSuper text eol=lf
 VERSION text eol=lf
 *.sh text eol=lf
 lib/*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf

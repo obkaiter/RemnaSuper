@@ -72,8 +72,19 @@ mkdir -p "$src_root"
 tar -xzf "$archive" -C "$src_root"
 src_dir="$(find "$src_root" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 
-if [ -z "$src_dir" ] || [ ! -f "$src_dir/RemnaSuper" ] || [ ! -d "$src_dir/lib" ] || [ ! -f "$src_dir/VERSION" ]; then
+if [ -z "$src_dir" ] || [ ! -f "$src_dir/RemnaSuper" ] || [ ! -d "$src_dir/lib" ] || [ ! -f "$src_dir/VERSION" ] ||
+   [ ! -f "$src_dir/lib/system/network_diagnostics/agent.py" ] ||
+   [ ! -f "$src_dir/lib/system/network_diagnostics/safety.py" ] ||
+   [ ! -f "$src_dir/lib/system/network_diagnostics/protocol.py" ] ||
+   [ ! -f "$src_dir/lib/system/network_diagnostics/measure.py" ] ||
+   [ ! -f "$src_dir/lib/system/network_diagnostics/report.py" ]; then
     printf "[x] В архиве нет обязательных файлов RemnaSuper.\n"
+    exit 1
+fi
+
+if [ -d /var/lib/remnasuper/network-diagnostics/sessions ] &&
+   [ -n "$(find /var/lib/remnasuper/network-diagnostics/sessions -name journal.json -print -quit)" ]; then
+    printf "[x] Есть активная или неочищенная сессия сетевой диагностики. Установка остановлена до её завершения.\n"
     exit 1
 fi
 
