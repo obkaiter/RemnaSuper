@@ -25,11 +25,48 @@ check_command() {
     fi
 }
 
+backup_config_file() {
+    local source_file="$1"
+    local output_variable="$2"
+    local file_name timestamp backup_path
+
+    if [ ! -f "$source_file" ]; then
+        error "Файл конфигурации не найден: $source_file"
+        return 1
+    fi
+    if [ -L "$BACKUP_DIR" ]; then
+        error "Каталог резервных копий не должен быть символической ссылкой: $BACKUP_DIR"
+        return 1
+    fi
+    if ! mkdir -p -- "$BACKUP_DIR" || ! chmod 700 -- "$BACKUP_DIR"; then
+        error "Не удалось подготовить каталог резервных копий: $BACKUP_DIR"
+        return 1
+    fi
+
+    file_name="${source_file##*/}"
+    timestamp="$(date +%F_%H%M%S)" || {
+        error "Не удалось получить время для имени резервной копии $source_file."
+        return 1
+    }
+    backup_path="$(mktemp "$BACKUP_DIR/${file_name}.bak.${timestamp}.XXXXXX")" || {
+        error "Не удалось создать резервную копию $source_file."
+        return 1
+    }
+    if ! cp -p -- "$source_file" "$backup_path"; then
+        rm -f -- "$backup_path"
+        error "Не удалось создать резервную копию $source_file."
+        return 1
+    fi
+
+    printf -v "$output_variable" '%s' "$backup_path"
+    info "Резервная копия $source_file: $backup_path"
+}
+
 backup_compose() {
+    local backup_file
+
     if [ -f "$COMPOSE_FILE" ]; then
-        local backup="${COMPOSE_FILE}.bak.$(date +%F_%H%M%S)"
-        cp "$COMPOSE_FILE" "$backup" || return 1
-        info "Бэкап docker-compose.yml: $backup"
+        backup_config_file "$COMPOSE_FILE" backup_file || return 1
     fi
 }
 

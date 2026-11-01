@@ -9,6 +9,7 @@ else
 fi
 
 INSTALL_DIR="/opt/RemnaSuper"
+BACKUP_DIR="$INSTALL_DIR/backups"
 COMMAND_LINK="/usr/local/bin/rs"
 GITHUB_REPO="SP1K33/RemnaSuper"
 GITHUB_BRANCH="${REMNASUPER_BRANCH:-main}"

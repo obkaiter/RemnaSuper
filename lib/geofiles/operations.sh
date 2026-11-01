@@ -4,11 +4,19 @@ install_geofile() {
     local repo_name="$1"
     local geosite_url="$2"
     local geoip_url="$3"
-    local files_downloaded=0
 
     header "Установка geofiles: ${repo_name}"
     check_command wget || return 1
     mkdir -p "$GEOFILES_DIR"
+
+    if [ "$geosite_url" = "none" ] && [ "$geoip_url" = "none" ]; then
+        error "Не указаны URL для скачивания файлов."
+        return 1
+    fi
+    if [ -f "$COMPOSE_FILE" ] && ! backup_compose; then
+        error "Не удалось создать резервную копию docker-compose.yml."
+        return 1
+    fi
 
     if [ "$geosite_url" != "none" ]; then
         local geosite_filename="${repo_name}-geosite.dat"
@@ -17,7 +25,6 @@ install_geofile() {
             error "Ошибка при скачивании geosite.dat."
             return 1
         fi
-        files_downloaded=$((files_downloaded + 1))
         if ! add_geofile_cron "$geosite_filename" "$geosite_url"; then
             error "Не удалось добавить задачу обновления ${geosite_filename} в crontab."
             return 1
@@ -33,7 +40,6 @@ install_geofile() {
             error "Ошибка при скачивании geoip.dat."
             return 1
         fi
-        files_downloaded=$((files_downloaded + 1))
         if ! add_geofile_cron "$geoip_filename" "$geoip_url"; then
             error "Не удалось добавить задачу обновления ${geoip_filename} в crontab."
             return 1
@@ -42,15 +48,9 @@ install_geofile() {
         success "Задача добавлена в crontab: ежедневное обновление в 00:00."
     fi
 
-    if [ "$files_downloaded" -eq 0 ]; then
-        error "Не указаны URL для скачивания файлов."
-        return 1
-    fi
-
     if [ -f "$COMPOSE_FILE" ]; then
         printf "\n"
         step "Добавление volumes в docker-compose.yml..."
-        backup_compose
 
         if [ "$geosite_url" != "none" ]; then
             local geosite_filename="${repo_name}-geosite.dat"
@@ -77,8 +77,22 @@ uninstall_geofile() {
     local has_geoip="$3"
     local files_removed=0
     local modified=false
+    local compose_needs_update=0
 
     header "Удаление geofiles: ${repo_name}"
+
+    if [ -f "$COMPOSE_FILE" ]; then
+        if [ "$has_geosite" = "true" ] && grep -qF "${repo_name}-geosite.dat" "$COMPOSE_FILE"; then
+            compose_needs_update=1
+        fi
+        if [ "$has_geoip" = "true" ] && grep -qF "${repo_name}-geoip.dat" "$COMPOSE_FILE"; then
+            compose_needs_update=1
+        fi
+        if [ "$compose_needs_update" -eq 1 ] && ! backup_compose; then
+            error "Не удалось создать резервную копию docker-compose.yml. Удаление не выполнено."
+            return 1
+        fi
+    fi
 
     if [ "$has_geosite" = "true" ]; then
         local geosite_filename="${repo_name}-geosite.dat"
@@ -119,7 +133,6 @@ uninstall_geofile() {
     if [ -f "$COMPOSE_FILE" ]; then
         printf "\n"
         step "Удаление volumes из docker-compose.yml..."
-        backup_compose
 
         if [ "$has_geosite" = "true" ]; then
             local geosite_filename="${repo_name}-geosite.dat"

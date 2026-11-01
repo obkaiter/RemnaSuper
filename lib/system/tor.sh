@@ -100,7 +100,7 @@ wait_for_tor() {
 install_tor() {
     header "Установка Tor"
     local package
-    local previous_config=""
+    local previous_config_backup=""
     local torrc_backup=""
     local torrc_changed=0
     local tmp_config
@@ -144,17 +144,14 @@ install_tor() {
     fi
 
     if [ -f "$TOR_CONFIG_FILE" ]; then
-        previous_config="$(mktemp)"
-        cp "$TOR_CONFIG_FILE" "$previous_config" || {
-            rm -f "$previous_config"
-            error "Не удалось создать временную копию $TOR_CONFIG_FILE."
+        backup_config_file "$TOR_CONFIG_FILE" previous_config_backup || {
+            error "Не удалось создать резервную копию $TOR_CONFIG_FILE."
             pause
             return
         }
     fi
 
     tmp_config="$(mktemp "$TOR_CONFIG_DIR/.remnasuper.XXXXXX")" || {
-        rm -f "$previous_config"
         error "Не удалось создать временный файл конфигурации Tor."
         pause
         return
@@ -170,11 +167,10 @@ EOF
 
     if ! grep -Eq '^[[:space:]]*%include[[:space:]]+(/etc/tor/)?torrc\.d/\*\.conf([[:space:]]|$)' "$TOR_MAIN_CONFIG" 2>/dev/null &&
         ! grep -Fq "%include $TOR_CONFIG_FILE" "$TOR_MAIN_CONFIG" 2>/dev/null; then
-        torrc_backup="${TOR_MAIN_CONFIG}.bak.$(date +%F_%H%M%S)"
-        if ! cp "$TOR_MAIN_CONFIG" "$torrc_backup"; then
-            [ -n "$previous_config" ] && mv "$previous_config" "$TOR_CONFIG_FILE"
-            [ -z "$previous_config" ] && rm -f "$TOR_CONFIG_FILE"
-            error "Не удалось создать бэкап $TOR_MAIN_CONFIG."
+        if ! backup_config_file "$TOR_MAIN_CONFIG" torrc_backup; then
+            [ -n "$previous_config_backup" ] && cp -p "$previous_config_backup" "$TOR_CONFIG_FILE"
+            [ -z "$previous_config_backup" ] && rm -f "$TOR_CONFIG_FILE"
+            error "Не удалось создать резервную копию $TOR_MAIN_CONFIG."
             pause
             return
         fi
@@ -184,17 +180,16 @@ EOF
             printf "# END REMNASUPER TOR\n"
         } >> "$TOR_MAIN_CONFIG"
         torrc_changed=1
-        info "Бэкап основной конфигурации Tor: $torrc_backup"
     fi
 
     step "Проверка конфигурации Tor..."
     if ! verify_tor_config; then
         error "Конфигурация Tor не прошла проверку. Выполняется откат."
         if [ "$torrc_changed" -eq 1 ]; then
-            mv "$torrc_backup" "$TOR_MAIN_CONFIG"
+            cp -p "$torrc_backup" "$TOR_MAIN_CONFIG"
         fi
-        if [ -n "$previous_config" ]; then
-            mv "$previous_config" "$TOR_CONFIG_FILE"
+        if [ -n "$previous_config_backup" ]; then
+            cp -p "$previous_config_backup" "$TOR_CONFIG_FILE"
         else
             rm -f "$TOR_CONFIG_FILE"
         fi
@@ -206,10 +201,10 @@ EOF
         error "Не удалось запустить Tor. Проверьте: journalctl -u tor@default.service"
         warn "Выполняется восстановление предыдущей конфигурации Tor."
         if [ "$torrc_changed" -eq 1 ]; then
-            mv "$torrc_backup" "$TOR_MAIN_CONFIG"
+            cp -p "$torrc_backup" "$TOR_MAIN_CONFIG"
         fi
-        if [ -n "$previous_config" ]; then
-            mv "$previous_config" "$TOR_CONFIG_FILE"
+        if [ -n "$previous_config_backup" ]; then
+            cp -p "$previous_config_backup" "$TOR_CONFIG_FILE"
         else
             rm -f "$TOR_CONFIG_FILE"
         fi
@@ -217,8 +212,6 @@ EOF
         pause
         return
     fi
-    rm -f "$previous_config"
-
     step "Ожидание подключения к сети Tor..."
     exit_ip="$(wait_for_tor)" || {
         error "Tor запущен, но выход в интернет через SOCKS5 не подтвердился за 60 секунд."

@@ -147,17 +147,16 @@ enable_http_redirect() {
 
     if [ "$redirect_present" -eq 0 ]; then
         if ! temp_file="$(mktemp "${NODE_NGINX_CONF}.remnasuper.XXXXXX")" ||
-            ! backup_file="$(mktemp "${NODE_NGINX_CONF}.bak.XXXXXX")"; then
+            ! backup_config_file "$NODE_NGINX_CONF" backup_file; then
             [ -n "$temp_file" ] && rm -f "$temp_file"
-            error "Не удалось создать временные файлы рядом с nginx.conf."
+            error "Не удалось подготовить временный файл или резервную копию nginx.conf."
             pause
             return 1
         fi
         if ! cp -p "$NODE_NGINX_CONF" "$temp_file" ||
-            ! cp -p "$NODE_NGINX_CONF" "$backup_file" ||
             ! printf '\nserver {\n    listen 80;\n    server_name %s;\n    return 301 https://$host$request_uri;\n}\n' "$domain" >> "$temp_file" ||
             ! _http_redirect_inspect_config "$temp_file" >/dev/null; then
-            rm -f "$temp_file" "$backup_file"
+            rm -f "$temp_file"
             error "Не удалось подготовить nginx.conf. Исходный файл не изменён."
             pause
             return 1
@@ -166,7 +165,7 @@ enable_http_redirect() {
 
     step "Открытие TCP-порта 80 в UFW..."
     if ! ufw allow 80/tcp; then
-        [ "$redirect_present" -eq 0 ] && rm -f "$temp_file" "$backup_file"
+        [ "$redirect_present" -eq 0 ] && rm -f "$temp_file"
         error "Не удалось добавить правило UFW для порта 80."
         pause
         return 1
@@ -211,6 +210,5 @@ enable_http_redirect() {
     fi
 
     success "HTTP-запросы на порт 80 перенаправляются на HTTPS для $domain."
-    info "Резервная копия nginx.conf: $backup_file"
     pause
 }

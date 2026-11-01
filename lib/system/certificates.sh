@@ -77,7 +77,11 @@ install_remnanode_certificates() {
     fullchain_volume="/etc/letsencrypt/live/${domain}/fullchain.pem:/etc/nginx/ssl/${domain}/fullchain.pem:ro"
     privkey_volume="/etc/letsencrypt/live/${domain}/privkey.pem:/etc/nginx/ssl/${domain}/privkey.pem:ro"
 
-    backup_compose
+    if ! backup_compose; then
+        error "Не удалось создать резервную копию docker-compose.yml."
+        pause
+        return
+    fi
     # Новые записи добавляются сразу после volumes, поэтому добавляем их в обратном порядке.
     add_remnanode_volume "$privkey_volume" || { pause; return; }
     add_remnanode_volume "$fullchain_volume" || { pause; return; }
