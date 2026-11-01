@@ -29,7 +29,7 @@ node_accelerator_menu() {
         read -r choice
         case $choice in
             1) run_action "Установка оптимизатора Node Accelerator" \
-                "Будет запущен модуль optimize: XanMod с BBRv3, системный и сетевой тюнинг, RPS/RFS/XPS, лимиты, swap и настройка NIC. Для активации нового ядра после установки может потребоваться перезагрузка." \
+                "Будет установлен модуль optimize: XanMod с BBRv3 и системным тюнингом. После успеха VPS автоматически перезагрузится; подключения прервутся." \
                 run_node_accelerator optimize ;;
             2) run_action "Установка защиты Node Accelerator" \
                 "Будет запущен интерактивный модуль protect: nftables, защита от сканирования и флуда, CrowdSec и автоопределение порта node-agent. Внимательно проверьте разрешённые порты и whitelist, чтобы не потерять доступ к серверу." \
@@ -38,7 +38,7 @@ node_accelerator_menu() {
                 "Будет запущен read-only модуль diagnose. Он проверит ядро, BBR, sysctl, лимиты, conntrack, NIC, firewall, CrowdSec, порты и состояние RemnaNode без изменения настроек." \
                 run_node_accelerator diagnose ;;
             4) run_action "Установка всех модулей Node Accelerator" \
-                "Будут последовательно запущены optimize, protect и diagnose. Установка изменит параметры системы и firewall; после установки XanMod может потребоваться перезагрузка." \
+                "Будут установлены optimize, protect и diagnose. После успеха VPS автоматически перезагрузится; подключения прервутся. Проверьте порты firewall, чтобы сохранить доступ." \
                 run_node_accelerator all ;;
             5) run_action "Установка CLI Node Accelerator" \
                 "Будут установлены или обновлены постоянные read-only команды na-diagnose и na-report в /usr/local/sbin." \

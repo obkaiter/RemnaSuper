@@ -44,7 +44,7 @@ main_menu() {
         read -r choice
         case $choice in
             1) run_action "apt update && apt upgrade" \
-                "Будут обновлены пакеты системы (apt-get update и apt-get upgrade), затем установлены cron, mc и wget." \
+                "Будут обновлены пакеты системы и установлены cron, mc и wget. После успешного обновления VPS автоматически перезагрузится; подключения прервутся." \
                 initial_setup ;;
             2) run_action "Установка remnawave-reverse-proxy" \
                 "Будет скачан и запущен официальный install_remnawave.sh из репозитория eGamesAPI/remnawave-reverse-proxy." \

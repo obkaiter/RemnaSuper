@@ -1,5 +1,19 @@
 #!/usr/bin/env bash
 
+reboot_vps() {
+    local message="$1"
+
+    check_command systemctl || return 1
+    info "$message"
+
+    if sudo systemctl reboot; then
+        return 0
+    fi
+
+    error "Не удалось запустить автоматическую перезагрузку VPS."
+    return 1
+}
+
 initial_setup() {
     header "Первоначальная настройка"
     check_command apt-get || { pause; return; }
@@ -27,7 +41,12 @@ initial_setup() {
         error "Не удалось установить cron, mc и wget."
     fi
 
+    if reboot_vps "Обновление системы завершено. VPS будет автоматически перезагружен."; then
+        return 0
+    fi
+
     pause
+    return 1
 }
 
 install_fail2ban() {
@@ -151,6 +170,13 @@ run_node_accelerator() {
 
     if [ "$exit_code" -eq 0 ]; then
         success "Команда Node Accelerator успешно выполнена."
+        if [[ "$action" == "optimize" || "$action" == "all" ]]; then
+            if reboot_vps "Node Accelerator установлен. VPS будет автоматически перезагружен."; then
+                return 0
+            fi
+            pause
+            return 1
+        fi
     else
         error "Node Accelerator завершился с ошибкой. Код: $exit_code"
     fi
