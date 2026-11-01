@@ -15,17 +15,40 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from measure import (available_port, create_file, distribution, ping, preflight,
+from measure import (available_port, ping, preflight,
                      run_echo, run_iperf, send_file, send_udp, service, start_listener,
                      stop_listener)
 from protocol import authenticate_client, authenticate_server
 from report import write_reports
-from safety import (REPORT_ROOT, Resources, acquire_lock, check_firewall, command,
+from safety import (REPORT_ROOT, Resources, acquire_lock, command,
                     recover, recover_stale, secure_dir, watch)
 
-PROFILES = {"1": ("Быстрый", 64 * 1024 ** 2, 5, 0),
-            "2": ("Стандартный", 1024 ** 3, 20, 120),
-            "3": ("Углублённый", 1024 ** 3, 30, 300)}
+PROFILE_PRESETS = {
+    "1": {"profile": "Быстрый", "file_bytes": 64 * 1024 ** 2,
+          "tcp_seconds": 6, "stability_seconds": 20, "target_mbps": 100,
+          "cap_mbps": 150, "session_seconds": 300, "baseline_probes": 30,
+          "echo_count": 100, "udp_seconds": 2, "udp_pps": 200,
+          "udp_bandwidth_seconds": 6, "udp_fractions": [0.05],
+          "under_load_seconds": 10, "duplex_seconds": 10,
+          "route_probe": False, "repeat_tcp": False,
+          "tcp_streams": [1, 4, 8], "udp_sizes": [64, 128, 256, 512, 1200]},
+    "2": {"profile": "Средний", "file_bytes": 1024 ** 3,
+          "tcp_seconds": 15, "stability_seconds": 120, "target_mbps": 100,
+          "cap_mbps": 150, "session_seconds": 900, "baseline_probes": 100,
+          "echo_count": 500, "udp_seconds": 3, "udp_pps": 500,
+          "udp_bandwidth_seconds": 6, "udp_fractions": [0.05, 0.25, 0.50],
+          "under_load_seconds": 15, "duplex_seconds": 15,
+          "route_probe": True, "repeat_tcp": False,
+          "tcp_streams": [1, 4, 8], "udp_sizes": [64, 128, 256, 512, 1200]},
+    "3": {"profile": "Полный", "file_bytes": 1024 ** 3,
+          "tcp_seconds": 30, "stability_seconds": 420, "target_mbps": 100,
+          "cap_mbps": 150, "session_seconds": 1800, "baseline_probes": 100,
+          "echo_count": 1000, "udp_seconds": 5, "udp_pps": 1000,
+          "udp_bandwidth_seconds": 10, "udp_fractions": [0.05, 0.25, 0.50],
+          "under_load_seconds": 20, "duplex_seconds": 20,
+          "route_probe": True, "repeat_tcp": True,
+          "tcp_streams": [1, 4, 8], "udp_sizes": [64, 128, 256, 512, 1200]},
+}
 KINDS = {"iperf", "iperf_udp", "file", "echo", "udp"}
 STAGE_RE = re.compile(r"^[a-f0-9]{6}$")
 
@@ -34,19 +57,30 @@ class PartialTransfer(RuntimeError):
     pass
 
 
+class SessionStop:
+    def __init__(self, session):
+        self.session = session
+
+    def reason(self):
+        session = self.session
+        if session.started is not None and time.monotonic() - session.started >= session.config["session_seconds"] - 20:
+            return "Достигнут временной бюджет профиля"
+        return "Потерян канал управления"
+
+    def is_set(self):
+        session = self.session
+        return (session.stop.is_set() or
+                (session.control is not None and session.control.stop.is_set()) or
+                self.reason() == "Достигнут временной бюджет профиля")
+
+
 def question(label, default):
     answer = input("%s [%s]: " % (label, default)).strip()
     return answer or str(default)
 
 
-def integer(label, default, low, high):
-    value = int(question(label, default))
-    if not low <= value <= high:
-        raise ValueError("%s: допустимо %d–%d" % (label, low, high))
-    return value
-
-
 def peer_ip():
+    show_local_ips()
     value = input("IP второй VPS: ").strip()
     address = ipaddress.ip_address(value)
     if address.is_loopback or address.is_multicast or address.is_unspecified:
@@ -54,37 +88,72 @@ def peer_ip():
     return str(address)
 
 
+def show_local_ips():
+    try:
+        interfaces = json.loads(command(["ip", "-j", "address", "show"], check=True).stdout)
+        addresses = []
+        for interface in interfaces:
+            for item in interface.get("addr_info", []):
+                address = ipaddress.ip_address(item["local"])
+                if not (address.is_loopback or address.is_link_local or
+                        address.is_multicast or address.is_unspecified):
+                    addresses.append("%s: %s" % (interface["ifname"], address))
+        if addresses:
+            print("IP этой VPS (локальные интерфейсы):")
+            for address in addresses:
+                print("  %s" % address)
+            print("При NAT внешний IP может отличаться от адреса интерфейса.")
+        else:
+            print("IP интерфейсов не найден; проверьте сетевые настройки VPS.")
+    except Exception as exc:
+        print("Не удалось определить IP этой VPS: %s" % exc)
+
+
 def settings():
-    print("Профиль: 1 — быстрый (неполный), 2 — стандартный, 3 — углублённый")
-    profile, size, tcp_seconds, stability = PROFILES[question("Выбор профиля", "2")]
-    size_mib = integer("Файл в каждом направлении, MiB", size // 1048576, 1, 4096)
-    size = size_mib * 1048576
-    target = integer("Целевая полезная TCP-скорость, Mbps (только для оценки)", 100, 1, 10000)
-    cap = integer("Предел скорости тестового потока, Mbps", 150, 1, 10000)
-    tcp_seconds = integer("Длительность каждого TCP-прогона, сек", tcp_seconds, 5, 60)
-    if stability:
-        stability = integer("Длительная нагрузка на направление, сек", stability, 30, 600)
-    limit = integer("Лимит всей сессии, мин", 60, 10, 240) * 60
-    return {"profile": profile, "file_bytes": size, "tcp_seconds": tcp_seconds,
-            "stability_seconds": stability, "target_mbps": target,
-            "cap_mbps": cap, "session_seconds": limit,
-            "tcp_streams": [1, 4, 8], "udp_sizes": [64, 128, 256, 512, 1200]}
+    print("Профиль: 1 — быстрый (до 5 минут), 2 — средний (до 15 минут), "
+          "3 — полный (до 30 минут)")
+    choice = question("Выбор профиля", "2")
+    if choice not in PROFILE_PRESETS:
+        raise ValueError("Выберите профиль 1, 2 или 3")
+    return dict(PROFILE_PRESETS[choice])
+
+
+def planned_seconds(config):
+    cap = config["cap_mbps"] * 1000000
+    echo = sum(max(0.001, size * 16 / cap) * config["echo_count"]
+               for size in (64, 256, 1024, 4096)) * 2
+    return (2 * config["baseline_probes"] * 0.2 +
+            2 * (3 + config["repeat_tcp"]) * config["tcp_seconds"] +
+            2 * config["file_bytes"] * 8 / cap +
+            (5 if config["profile"] == "Быстрый" else 30) + echo +
+            2 * len(config["udp_sizes"]) * config["udp_seconds"] +
+            2 * len(config["udp_fractions"]) * config["udp_bandwidth_seconds"] +
+             (130 if config["route_probe"] else 0) +
+            2 * config["under_load_seconds"] +
+            2 * config["stability_seconds"] + config["duplex_seconds"] +
+            (60 if config["profile"] == "Быстрый" else
+             70 if config["profile"] == "Средний" else 90))
 
 
 def confirm_load(config):
     file_gib = 2 * config["file_bytes"] / 1024 ** 3
-    estimate = (2 * 3 * config["tcp_seconds"] + 2 * config["stability_seconds"] +
-                40) * config["cap_mbps"] / 8 / 1024
-    print("\nПрофиль: %s; файл: %.2f GiB в каждую сторону." %
-          (config["profile"], config["file_bytes"] / 1024 ** 3))
+    tcp_seconds = (2 * (3 + config["repeat_tcp"]) * config["tcp_seconds"] +
+                   2 * config["stability_seconds"] +
+                   2 * config["under_load_seconds"] + config["duplex_seconds"])
+    udp_seconds = 2 * len(config["udp_fractions"]) * config["udp_bandwidth_seconds"]
+    estimate = (tcp_seconds + udp_seconds) * config["cap_mbps"] * 1000000 / 8 / 1024 ** 3
+    print("\nПрофиль: %s, до %d минут; файл: %.2f GiB в каждую сторону." %
+          (config["profile"], config["session_seconds"] // 60,
+           config["file_bytes"] / 1024 ** 3))
     print("Только файловый этап: минимум %.2f GiB трафика; дополнительно TCP/UDP." % file_gib)
-    print("Ориентир дополнительного трафика при пределе %d Mbps: около %.1f GiB; "
-          "фактический объём зависит от потерь и длительности." %
+    print("Ориентир дополнительного полезного трафика при пределе %d Mbps: около %.1f GiB; "
+          "тарифицируемый объём с заголовками и повторами может быть больше." %
           (config["cap_mbps"], estimate))
-    minimum_file_seconds = 2 * config["file_bytes"] * 8 / (config["cap_mbps"] * 1000000)
-    if minimum_file_seconds + 600 > config["session_seconds"]:
-        raise ValueError("Лимит сессии слишком мал для двух полных файловых передач и остальных этапов. "
-                         "Увеличьте лимит или предел Mbps.")
+    if planned_seconds(config) > config["session_seconds"] - 20:
+        raise ValueError("Заданный профиль не укладывается в свой временной бюджет")
+    print("Плановая нагрузка с резервом: около %.1f мин. "
+          "На медленном канале время может истечь до полного файла." %
+          (planned_seconds(config) / 60))
     print("Нагрузка может замедлить VPN-пользователей и расходовать платный трафик VPS.")
     print("Ctrl+C прерывает сессию и запускает очистку.")
     if input("Подтверждаю нагрузку и стоимость трафика (введите ДА): ").strip() != "ДА":
@@ -141,8 +210,9 @@ class Session:
         self.report = make_report(sid, role, peer, config, preflight_data)
         self.control = None
         self.stop = threading.Event()
+        self.test_stop = SessionStop(self)
         self.active_listener = None
-        self.started = time.monotonic()
+        self.started = None
         self.heartbeat_thread = None
         self.used_stages = set()
 
@@ -154,7 +224,7 @@ class Session:
                 return stage
 
     def prepare(self):
-        self.resources.create(self.config["session_seconds"])
+        self.resources.create(self.config["session_seconds"] + 300)
         self.resources.data["report_dir"] = str(self.report_dir)
         self.resources.save()
         secret_path = self.resources.path.parent / "tmp" / "secret"
@@ -177,8 +247,11 @@ class Session:
     def ensure_alive(self):
         if self.stop.is_set() or (self.control and self.control.stop.is_set()):
             raise ConnectionError("Сессия прервана или потерян канал управления")
-        if time.monotonic() - self.started > self.config["session_seconds"]:
-            raise TimeoutError("Превышен лимит времени сессии")
+
+    def ensure_budget(self):
+        self.ensure_alive()
+        if self.test_stop.reason() == "Достигнут временной бюджет профиля":
+            raise TimeoutError("Достигнут временной бюджет профиля")
 
     def send(self, kind, payload=None):
         self.ensure_alive()
@@ -230,22 +303,22 @@ class Session:
             path = self.report_dir / ("iperf3-%s.json" % stage)
             result = run_iperf(self.resources, self.peer, port, params["streams"],
                                params["seconds"], params.get("rate_mbps", self.config["cap_mbps"]),
-                               path, self.control.stop, kind == "iperf_udp")
+                               path, self.test_stop, kind == "iperf_udp")
             if params.get("under_load"):
                 result["load_rtt_ms"] = self._load_ping_result.get("rtt_ms")
             return result
         if kind == "file":
             return send_file(self.resources, self.peer, port, stage,
                              self.config["file_bytes"], self.config["cap_mbps"],
-                             self.control.stop)
+                             self.test_stop)
         if kind == "echo":
             return run_echo(self.resources, self.peer, port, stage,
                             params["size"], params["count"],
-                            self.config["cap_mbps"], self.control.stop)
+                            self.config["cap_mbps"], self.test_stop)
         if kind == "udp":
             return send_udp(self.resources, self.peer, port, stage,
                             params["size"], params["pps"], params["seconds"],
-                            self.control.stop)
+                            self.test_stop)
         raise ValueError("Неизвестный вид измерения")
 
     def _client_with_load(self, kind, stage, port, params):
@@ -262,7 +335,7 @@ class Session:
         return result
 
     def paired(self, kind, direction, params):
-        self.ensure_alive()
+        self.ensure_budget()
         stage = self.next_stage()
         port = available_port(self.peer, "udp" if kind == "udp" else "tcp")
         listener_size = self.config["file_bytes"] if kind == "file" else 0
@@ -270,6 +343,7 @@ class Session:
         sender, receiver = None, None
         reason = None
         status = "FAILED"
+        abort_after_record = False
         try:
             if direction == "A_TO_B":
                 for attempt in range(5):
@@ -295,9 +369,13 @@ class Session:
                     self.send("START_TEST", {"op": "send", "kind": kind,
                                               "stage": stage, "port": port,
                                               "params": params})
-                    sender = self.expect("RESULT", params.get("seconds", 0) +
-                                         self.config["file_bytes"] * 8 /
-                                         (self.config["cap_mbps"] * 1000000) + 90)
+                    expected_timeout = (params.get("seconds", 0) +
+                                        self.config["file_bytes"] * 8 /
+                                        (self.config["cap_mbps"] * 1000000) + 90)
+                    remaining = (self.config["session_seconds"] -
+                                 (time.monotonic() - self.started) - 20)
+                    sender = self.expect("RESULT", max(1, remaining if kind == "file" else
+                                                      min(expected_timeout, remaining)))
                 finally:
                     receiver = stop_listener(self.resources, local_listener, kind, stage, port)
                     local_listener = None
@@ -338,6 +416,7 @@ class Session:
         except (OSError, ValueError, RuntimeError, TimeoutError, KeyError, TypeError) as exc:
             reason = str(exc)
             status = "TIMEOUT" if isinstance(exc, TimeoutError) else "FAILED"
+            abort_after_record = isinstance(exc, TimeoutError) and direction == "B_TO_A"
             if isinstance(exc, (OSError, TimeoutError)):
                 reason += "; проверьте маршрут, NAT и cloud firewall обеих VPS"
             if self.control.stop.is_set():
@@ -352,18 +431,22 @@ class Session:
                        "tcp" if kind == "iperf" else kind)
         self.record(stage_record(report_kind, direction,
                                  params, status, metrics, reason, stage))
+        if abort_after_record or self.test_stop.reason() == "Достигнут временной бюджет профиля":
+            raise TimeoutError(reason or "Достигнут временной бюджет профиля")
 
     def probe(self, direction):
+        self.ensure_budget()
         if direction == "A_TO_B":
-            result = ping(self.peer, 100)
+            result = ping(self.peer, self.config["baseline_probes"])
         else:
             self.send("START_TEST", {"op": "probe", "kind": "ping"})
-            result = self.expect("RESULT", 45).get("metrics", {})
+            result = self.expect("RESULT", self.config["baseline_probes"] + 30).get("metrics", {})
         status = "FINISHED" if result.get("received", 0) else "UNAVAILABLE"
         self.record(stage_record("baseline", direction, {}, status, result,
                                  result.get("reason") if status != "FINISHED" else None))
 
     def route_probe(self, direction):
+        self.ensure_budget()
         if direction == "A_TO_B":
             result = route_data(self.peer)
         else:
@@ -374,6 +457,7 @@ class Session:
                                  "PMTU не определён" if status != "FINISHED" else None))
 
     def duplex(self):
+        self.ensure_budget()
         if self.config["cap_mbps"] < 2:
             self.record(stage_record("duplex", "BOTH", {}, "SKIPPED",
                                      reason="Предел нагрузки ниже 2 Mbps"))
@@ -387,7 +471,7 @@ class Session:
         metrics = {}
         reason = None
         status = "FAILED"
-        params = {"streams": 1, "seconds": 20,
+        params = {"streams": 1, "seconds": self.config["duplex_seconds"],
                   "rate_mbps": self.config["cap_mbps"] // 2}
         try:
             self.send("START_TEST", {"op": "prepare", "kind": "iperf",
@@ -446,6 +530,9 @@ class Session:
         self.report["remote_preflight"] = response.get("preflight")
         if isinstance(response.get("utc"), (int, float)):
             self.report["clock_difference_estimate_s"] = response["utc"] - time.time()
+        self.started = time.monotonic()
+        self.resources.data["expires"] = time.time() + self.config["session_seconds"] + 60
+        self.resources.save()
         write_reports(self.report_dir, self.report)
         for direction in ("A_TO_B", "B_TO_A"):
             self.probe(direction)
@@ -453,11 +540,13 @@ class Session:
             original = next((item for item in self.report["stages"] if
                              item["kind"] == "baseline" and item["direction"] == direction), None)
             if original and original["status"] == "UNAVAILABLE":
-                self.paired("echo", direction, {"size": 64, "count": 1000})
+                self.paired("echo", direction, {"size": 64,
+                                                 "count": self.config["echo_count"]})
                 echo_stage = self.report["stages"][-1]
                 if echo_stage["kind"] == "echo" and echo_stage["status"] == "FINISHED":
                     metrics = {"rtt_ms": echo_stage["metrics"]["rtt_ms"],
-                               "sent": 1000, "received": echo_stage["metrics"]["received"],
+                               "sent": self.config["echo_count"],
+                               "received": echo_stage["metrics"]["received"],
                                "method": "TCP echo RTT; ICMP заблокирован"}
                     self.record(stage_record("baseline", direction, {"fallback": "TCP echo"},
                                              "FINISHED", metrics))
@@ -465,7 +554,7 @@ class Session:
             for streams in self.config["tcp_streams"]:
                 self.paired("iperf", direction,
                             {"streams": streams, "seconds": self.config["tcp_seconds"]})
-            if self.config["profile"] == "Углублённый":
+            if self.config["repeat_tcp"]:
                 self.paired("iperf", direction, {"streams": 1,
                                                   "seconds": self.config["tcp_seconds"],
                                                   "repeat": 2})
@@ -473,11 +562,14 @@ class Session:
             self.paired("file", direction, {})
         for direction in ("A_TO_B", "B_TO_A"):
             for size in (64, 256, 1024, 4096):
-                self.paired("echo", direction, {"size": size, "count": 1000})
+                self.paired("echo", direction, {"size": size,
+                                                 "count": self.config["echo_count"]})
         for direction in ("A_TO_B", "B_TO_A"):
             for size in self.config["udp_sizes"]:
-                pps = min(1000, max(1, self.config["cap_mbps"] * 1000000 // (size * 8)))
-                self.paired("udp", direction, {"size": size, "pps": pps, "seconds": 5})
+                pps = min(self.config["udp_pps"],
+                          max(1, self.config["cap_mbps"] * 1000000 // (size * 8)))
+                self.paired("udp", direction, {"size": size, "pps": pps,
+                                                "seconds": self.config["udp_seconds"]})
                 last = self.report["stages"][-1]
                 if last["status"] == "FINISHED" and last["metrics"].get("loss_pct", 0) >= 5:
                     for remaining in self.config["udp_sizes"][self.config["udp_sizes"].index(size) + 1:]:
@@ -492,22 +584,28 @@ class Session:
                 self.record(stage_record("udp_bandwidth", direction, {}, "SKIPPED",
                                          reason="Нет ориентира TCP-скорости"))
                 continue
-            for index, fraction in enumerate((0.05, 0.25, 0.50)):
+            for index, fraction in enumerate(self.config["udp_fractions"]):
                 rate = max(1, min(self.config["cap_mbps"], int(candidate * fraction)))
-                self.paired("iperf_udp", direction, {"streams": 1, "seconds": 10,
+                self.paired("iperf_udp", direction, {"streams": 1,
+                                                      "seconds": self.config["udp_bandwidth_seconds"],
                                                       "rate_mbps": rate})
                 last = self.report["stages"][-1]
                 if last["status"] == "FINISHED" and (
                         (last["metrics"].get("loss_pct") or 0) >= 3 or
                         (last["metrics"].get("cpu_local") or 0) >= 90):
-                    for remaining in (0.05, 0.25, 0.50)[index + 1:]:
+                    for remaining in self.config["udp_fractions"][index + 1:]:
                         self.record(stage_record("udp_bandwidth", direction,
                                                  {"fraction": remaining}, "SKIPPED",
                                                  reason="Потери UDP или CPU превысили безопасный порог"))
                     break
         for direction in ("A_TO_B", "B_TO_A"):
-            self.route_probe(direction)
-            self.paired("iperf", direction, {"streams": 1, "seconds": 20,
+            if self.config["route_probe"]:
+                self.route_probe(direction)
+            else:
+                self.record(stage_record("pmtu", direction, {}, "SKIPPED",
+                                         reason="Быстрый профиль"))
+            self.paired("iperf", direction, {"streams": 1,
+                                              "seconds": self.config["under_load_seconds"],
                                               "under_load": True})
         if self.config["stability_seconds"]:
             for direction in ("A_TO_B", "B_TO_A"):
@@ -541,8 +639,6 @@ class Session:
         self.config = config
         self.report["config"] = config
         self.report["remote_preflight"] = hello.get("preflight")
-        self.resources.data["expires"] = time.time() + config["session_seconds"]
-        self.resources.save()
         if isinstance(hello.get("utc"), (int, float)):
             self.report["clock_difference_estimate_s"] = hello["utc"] - time.time()
         if shutil.disk_usage(self.resources.path.parent).free < config["file_bytes"] + 512 * 1024 ** 2:
@@ -552,6 +648,9 @@ class Session:
         self.send("READY", {"status": "READY", "preflight":
                             shareable_preflight(self.report["local_preflight"]),
                             "utc": time.time()})
+        self.started = time.monotonic()
+        self.resources.data["expires"] = time.time() + config["session_seconds"] + 60
+        self.resources.save()
         while True:
             self.ensure_alive()
             try:
@@ -582,7 +681,7 @@ class Session:
                 op = payload.get("op")
                 if op == "probe":
                     if payload.get("kind") == "ping":
-                        result = ping(self.peer, 100)
+                        result = ping(self.peer, self.config["baseline_probes"])
                     elif payload.get("kind") == "route":
                         result = route_data(self.peer)
                     else:
@@ -670,20 +769,7 @@ class Session:
 
 
 def valid_config(value):
-    if not isinstance(value, dict):
-        return False
-    try:
-        return (value["profile"] in ("Быстрый", "Стандартный", "Углублённый") and
-                1048576 <= value["file_bytes"] <= 4 * 1024 ** 3 and
-                5 <= value["tcp_seconds"] <= 60 and
-                0 <= value["stability_seconds"] <= 600 and
-                1 <= value["target_mbps"] <= 10000 and
-                1 <= value["cap_mbps"] <= 10000 and
-                600 <= value["session_seconds"] <= 14400 and
-                value["tcp_streams"] == [1, 4, 8] and
-                value["udp_sizes"] == [64, 128, 256, 512, 1200])
-    except (KeyError, TypeError):
-        return False
+    return isinstance(value, dict) and any(value == preset for preset in PROFILE_PRESETS.values())
 
 
 def validate_stage(value, config):
@@ -736,13 +822,13 @@ def validate_stage(value, config):
                 not 1 <= params["rate_mbps"] <= config["cap_mbps"]):
             raise ValueError("Недопустимая скорость UDP")
         if kind == "echo" and (params.get("size") not in (64, 256, 1024, 4096) or
-                                params.get("count") != 1000):
+                                params.get("count") != config["echo_count"]):
             raise ValueError("Недопустимые параметры echo")
         if kind == "udp" and (params.get("size") not in (64, 128, 256, 512, 1200) or
                                not isinstance(params.get("pps"), int) or
-                               not 1 <= params["pps"] <= 1000 or
+                               not 1 <= params["pps"] <= config["udp_pps"] or
                                params["pps"] * params["size"] * 8 > config["cap_mbps"] * 1000000 or
-                               params.get("seconds") != 5):
+                               params.get("seconds") != config["udp_seconds"]):
             raise ValueError("Недопустимые параметры UDP")
 
 
@@ -798,7 +884,13 @@ def run():
         role = question("Роль: 1 — создать (A), 2 — присоединиться (B)", "1")
         if role not in ("1", "2"):
             raise ValueError("Неверная роль")
-        port = integer("Общий TCP-порт управления на VPS A", 55443, 1024, 65535)
+        try:
+            port = int(os.environ.get("REMNASUPER_DIAG_PORT", "55443"))
+        except ValueError as exc:
+            raise ValueError("REMNASUPER_DIAG_PORT должен быть числом") from exc
+        if not 1024 <= port <= 65535:
+            raise ValueError("REMNASUPER_DIAG_PORT должен быть в диапазоне 1024–65535")
+        print("TCP-порт управления на VPS A: %d" % port)
         if role == "1":
             config = settings()
             confirm_load(config)
@@ -824,10 +916,8 @@ def run():
             secret = bytes.fromhex(secret_hex)
             # The incoming profile is authenticated before any listener is opened.
             pre = preflight(peer, 1048576, port)
-            config = {"profile": "Быстрый", "file_bytes": 1048576,
-                      "tcp_seconds": 5, "stability_seconds": 0, "target_mbps": 100,
-                      "cap_mbps": 150, "session_seconds": 14400,
-                      "tcp_streams": [1, 4, 8], "udp_sizes": [64, 128, 256, 512, 1200]}
+            config = dict(PROFILE_PRESETS["1"])
+            config["session_seconds"] = 900  # Time to pair before the authenticated profile arrives.
             session = Session("B", sid, peer, secret, config, pre, port)
             session.prepare()
             session.connect_b()

@@ -33,6 +33,14 @@ def check_pressure(resources):
         raise RuntimeError("Свободное место упало ниже 128 MiB; нагрузка остановлена")
 
 
+def check_stop(stop):
+    if stop is not None and stop.is_set():
+        reason = stop.reason() if hasattr(stop, "reason") else "Потерян канал управления"
+        if reason == "Достигнут временной бюджет профиля":
+            raise TimeoutError(reason)
+        raise ConnectionError(reason)
+
+
 def percentile(values, percent):
     if not values:
         return None
@@ -322,8 +330,7 @@ def run_owned(resources, args, timeout, output=None, stop=None):
     last_pressure = started
     try:
         while process.poll() is None:
-            if stop is not None and stop.is_set():
-                raise ConnectionError("Потерян канал управления")
+            check_stop(stop)
             if time.monotonic() - started > timeout:
                 raise TimeoutError("Превышен лимит времени теста")
             if time.monotonic() - last_pressure > 5:
@@ -381,7 +388,7 @@ def run_iperf(resources, peer, port, streams, duration, cap_mbps, raw_path, stop
                            (exc, raw_path)) from exc
 
 
-def create_file(resources, size, stage):
+def create_file(resources, size, stage, stop=None):
     if not 1 <= size <= MAX_FILE:
         raise ValueError("Размер файла вне разрешённого диапазона")
     free = shutil.disk_usage(resources.path.parent).free
@@ -390,20 +397,25 @@ def create_file(resources, size, stage):
     path = resources.path.parent / "tmp" / (stage + ".source")
     digest = hashlib.sha256()
     started = time.monotonic()
-    with path.open("xb") as output:
-        remaining = size
-        while remaining:
-            chunk = os.urandom(min(CHUNK, remaining))
-            output.write(chunk)
-            digest.update(chunk)
-            remaining -= len(chunk)
-        output.flush()
-        os.fsync(output.fileno())
+    try:
+        with path.open("xb") as output:
+            remaining = size
+            while remaining:
+                check_stop(stop)
+                chunk = os.urandom(min(CHUNK, remaining))
+                output.write(chunk)
+                digest.update(chunk)
+                remaining -= len(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
     return path, digest.hexdigest(), time.monotonic() - started
 
 
 def send_file(resources, peer, port, stage, size, cap_mbps, stop):
-    source, digest, preparation = create_file(resources, size, stage)
+    source, digest, preparation = create_file(resources, size, stage, stop)
     sent = 0
     started = time.monotonic()
     try:
@@ -413,8 +425,7 @@ def send_file(resources, peer, port, stage, size, cap_mbps, stop):
             sock.sendall(auth_tag(secret, resources.sid, stage))
             started = time.monotonic()
             while sent < size:
-                if stop.is_set():
-                    raise ConnectionError("Потерян канал управления")
+                check_stop(stop)
                 if sent % (64 * CHUNK) == 0:
                     check_pressure(resources)
                 chunk = stream.read(min(CHUNK, size - sent))
@@ -451,8 +462,7 @@ def run_echo(resources, peer, port, stage, size, count, cap_mbps, stop):
         sock.settimeout(5)
         sock.sendall(auth_tag(secret, resources.sid, stage))
         for index in range(count):
-            if stop.is_set():
-                raise ConnectionError("Потерян канал управления")
+            check_stop(stop)
             if index % 100 == 0:
                 check_pressure(resources)
             message = struct.pack("!IQ", size, index) + secrets.token_bytes(size)
@@ -481,8 +491,7 @@ def send_udp(resources, peer, port, stage, size, pps, seconds, stop):
     started = time.monotonic()
     with socket.socket(family, socket.SOCK_DGRAM) as sock:
         for index in range(count):
-            if stop.is_set():
-                raise ConnectionError("Потерян канал управления")
+            check_stop(stop)
             body = struct.pack("!Q", index) + secrets.token_bytes(size - 24)
             tag = hmac.new(secret, resources.sid.encode() + stage.encode() + body,
                            hashlib.sha256).digest()[:16]
