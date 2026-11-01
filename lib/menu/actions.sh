@@ -7,7 +7,7 @@ confirm_action() {
 
     clear
     show_brand "$title"
-    printf "%s\n" "$description"
+    printf "%s\n" "$description" | LC_ALL=C.UTF-8 fold -s -w 90
     printf "\n${CYAN}Нажимте Enter чтобы продолжить${NC}"
 
     trap 'trap - INT; printf "\n"; info "Действие отменено. Возврат в предыдущее меню."; return 130' INT
