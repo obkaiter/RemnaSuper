@@ -160,13 +160,13 @@ class Resources:
         self.path = validate_journal_path(journal or ROOT / sid / "journal.json")
         self.data = None
 
-    def create(self, ttl):
+    def create(self):
         secure_dir(ROOT.parent)
         secure_dir(ROOT)
         secure_dir(self.path.parent)
         secure_dir(self.path.parent / "tmp")
         self.data = {"version": 1, "sid": self.sid, "peer": self.peer,
-                     "created": time.time(), "expires": time.time() + ttl,
+                     "created": time.time(),
                      "owner": {"pid": os.getpid(), "start": process_start(os.getpid())},
                      "rules": [], "processes": [], "state": "active"}
         self.save()
@@ -392,7 +392,7 @@ def recover_stale():
             if data.get("state") != "done":
                 heartbeat = path.parent / "heartbeat"
                 age = time.time() - heartbeat.stat().st_mtime
-                if age > 25 or time.time() > data["expires"]:
+                if age > 25:
                     problems.extend(recover(path, locked=True))
                 else:
                     problems.append("Активная сессия %s" % data.get("sid"))
@@ -409,7 +409,7 @@ def watch(path):
             if data.get("state") == "done":
                 return
             heartbeat = path.parent / "heartbeat"
-            if time.time() - heartbeat.stat().st_mtime > 25 or time.time() > data["expires"]:
+            if time.time() - heartbeat.stat().st_mtime > 25:
                 owner = data.get("owner")
                 if isinstance(owner, dict) and owned_process(owner):
                     stop_process(owner)
