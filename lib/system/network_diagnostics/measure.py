@@ -35,10 +35,7 @@ def check_pressure(resources):
 
 def check_stop(stop):
     if stop is not None and stop.is_set():
-        reason = stop.reason() if hasattr(stop, "reason") else "Потерян канал управления"
-        if reason == "Достигнут временной бюджет профиля":
-            raise TimeoutError(reason)
-        raise ConnectionError(reason)
+        raise ConnectionError("Сессия прервана или потерян канал управления")
 
 
 def percentile(values, percent):
