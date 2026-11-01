@@ -46,7 +46,6 @@ _write_zapret_strategy_to_config() {
         return 1
     fi
 
-    backup_file="${config_file}.bak.$(date +%F_%H%M%S)"
     tmp_file="$(mktemp)" || {
         error "Не удалось создать временный файл для конфигурации ss-zapret2."
         return 1
@@ -85,7 +84,7 @@ _write_zapret_strategy_to_config() {
         return 1
     fi
 
-    if ! cp "$config_file" "$backup_file" || ! mv "$tmp_file" "$config_file"; then
+    if ! backup_config_file "$config_file" backup_file || ! mv "$tmp_file" "$config_file"; then
         rm -f "$tmp_file"
         error "Не удалось сохранить новую конфигурацию ss-zapret2."
         return 1
@@ -175,7 +174,6 @@ apply_zapret_strategy_from_log() {
     fi
 
     success "Найденная стратегия автоматически записана в NFQWS2_OPT."
-    info "Бэкап предыдущей конфигурации: $ZAPRET_APPLIED_CONFIG_BACKUP"
     printf "\n${CYAN}Применённая конфигурация:${NC}\n%s\n" "$strategy_block"
     return 0
 }
@@ -299,7 +297,6 @@ install_zapret_strategy_manually() {
     step "Перезапуск ss-zapret2 с новой стратегией..."
     if (cd "$ZAPRET_DIR" && docker compose restart) && ensure_ss_zapret_running; then
         success "Ручная стратегия применена, контейнер ss-zapret2 запущен и готов."
-        info "Бэкап предыдущей конфигурации: $ZAPRET_APPLIED_CONFIG_BACKUP"
         pause
         return
     fi

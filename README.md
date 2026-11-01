@@ -312,11 +312,17 @@ Docker, systemd-сервис и watchdog, а наружу публикуется
 непустое содержимое и только затем заменяет текущий. При ошибке существующий
 файл сохраняется.
 
-Перед изменением `docker-compose.yml` создаётся файл вида:
+Резервные копии конфигурационных файлов RemnaSuper хранит в
+`/opt/RemnaSuper/backups`. Здесь сохраняются копии `docker-compose.yml`,
+`nginx.conf`, `torrc` и конфигурации ss-zapret2, в том числе для отката.
+Имена единообразны: исходное имя файла, суффикс `.bak.`, дата и время
+создания, затем уникальный идентификатор. Например:
 
 ```text
-/opt/remnanode/docker-compose.yml.bak.YYYY-MM-DD_HHMMSS
+/opt/RemnaSuper/backups/docker-compose.yml.bak.YYYY-MM-DD_HHMMSS.XXXXXX
 ```
+
+Перед изменением `docker-compose.yml` создаётся такая резервная копия.
 
 При удалении набора RemnaSuper удаляет его файлы, volumes и связанные задания
 cron.

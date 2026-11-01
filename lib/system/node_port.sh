@@ -428,24 +428,12 @@ change_node_port() {
         return 1
     fi
 
-    if ! backup_compose; then
+    if ! backup_config_file "$COMPOSE_FILE" backup_file; then
         error "Не удалось создать резервную копию docker-compose.yml."
         pause
         return 1
     fi
-    backup_file="$(mktemp "${COMPOSE_FILE}.rollback.XXXXXX")" || {
-        error "Не удалось подготовить файл для отката docker-compose.yml."
-        pause
-        return 1
-    }
-    if ! cp -p "$COMPOSE_FILE" "$backup_file"; then
-        rm -f "$backup_file"
-        error "Не удалось сохранить исходную конфигурацию RemnaNode для отката."
-        pause
-        return 1
-    fi
     temp_file="$(mktemp "${COMPOSE_FILE}.tmp.XXXXXX")" || {
-        rm -f "$backup_file"
         error "Не удалось подготовить временный файл docker-compose.yml."
         pause
         return 1
@@ -454,7 +442,7 @@ change_node_port() {
         ! chmod --reference="$COMPOSE_FILE" "$temp_file" ||
         ! chown --reference="$COMPOSE_FILE" "$temp_file" ||
         ! mv -f "$temp_file" "$COMPOSE_FILE"; then
-        rm -f "$temp_file" "$backup_file"
+        rm -f "$temp_file"
         error "Не удалось обновить NODE_PORT в docker-compose.yml."
         pause
         return 1
@@ -463,11 +451,9 @@ change_node_port() {
     if ! compose_error="$(cd "$NODE_DIR" && docker compose config 2>&1 >/dev/null)"; then
         if ! _node_port_restore_compose "$backup_file"; then
             error "Новая конфигурация Docker Compose не прошла проверку, и исходный файл не удалось восстановить."
-            rm -f "$backup_file"
             pause
             return 1
         fi
-        rm -f "$backup_file"
         [ -n "$compose_error" ] && error "$compose_error"
         error "Новая конфигурация Docker Compose не прошла проверку; исходный файл восстановлен."
         pause
@@ -478,11 +464,9 @@ change_node_port() {
     if ! ufw --force delete "$old_rule_number"; then
         if ! _node_port_restore_compose "$backup_file"; then
             error "Не удалось удалить старое правило UFW или восстановить исходный docker-compose.yml."
-            rm -f "$backup_file"
             pause
             return 1
         fi
-        rm -f "$backup_file"
         error "Не удалось удалить старое правило UFW; конфигурация RemnaNode восстановлена."
         pause
         return 1
@@ -507,7 +491,6 @@ change_node_port() {
         else
             error "Не удалось добавить новое правило UFW; старое правило и конфигурация восстановлены."
         fi
-        rm -f "$backup_file"
         pause
         return 1
     fi
@@ -541,7 +524,6 @@ change_node_port() {
                 error "Не удалось повторно запустить RemnaNode с текущей конфигурацией."
             fi
         fi
-        rm -f "$backup_file"
         if [ "$rollback_status" -eq 0 ]; then
             error "Перезапуск с новым портом завершился ошибкой; исходные настройки восстановлены."
         else
@@ -551,7 +533,6 @@ change_node_port() {
         return 1
     fi
 
-    rm -f "$backup_file"
     success "Порт взаимодействия с панелью изменён на $new_port."
     pause
 }

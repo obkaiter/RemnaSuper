@@ -11,6 +11,12 @@ fix_logs() {
         return
     fi
 
+    if ! backup_compose; then
+        error "Не удалось создать резервную копию docker-compose.yml."
+        pause
+        return
+    fi
+
     info "Создание директории: $LOG_DIR"
     mkdir -p "$LOG_DIR"
     chmod 755 "$LOG_DIR"
@@ -18,7 +24,6 @@ fix_logs() {
     chmod 644 "$LOG_DIR"/*.log
     success "Директория готова."
 
-    backup_compose
     add_remnanode_volume "/var/log/remnanode:/var/log/remnanode:rw" || { pause; return; }
 
     info "Перезапуск сервисов..."
