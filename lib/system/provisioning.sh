@@ -100,6 +100,22 @@ install_remnawave_reverse_proxy() {
     pause
 }
 
+install_rkn_guard() {
+    header "Установка rkn-guard"
+    check_command curl || { pause; return; }
+    check_command sudo || { pause; return; }
+    check_command bash || { pause; return; }
+
+    step "Запуск установщика rkn-guard..."
+    if curl -fsSL https://raw.githubusercontent.com/Flecksis/rkn-guard/master/install.sh | sudo bash -s -- install; then
+        success "rkn-guard установлен."
+    else
+        error "Установка rkn-guard завершилась с ошибкой."
+    fi
+
+    pause
+}
+
 run_ipregion() {
     check_command wget || { pause; return; }
     check_command bash || { pause; return; }

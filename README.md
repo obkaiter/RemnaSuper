@@ -157,24 +157,25 @@ RemnaSuper. Действия самого меню по-прежнему мог�
 | --- | --- |
 | `1` | `apt-get update`, `apt-get upgrade`, установка `cron`, `mc`, `wget`; после успешного обновления VPS автоматически перезагружается |
 | `2` | Установка `remnawave-reverse-proxy` из `eGamesAPI/remnawave-reverse-proxy` |
-| `3` | Подключение сертификатов из `remnawave-nginx` к RemnaNode |
-| `4` | HTTP 301 с порта 80 на HTTPS: правило UFW, правка `nginx.conf` и перезапуск ноды |
-| `5` | Подменю Node Accelerator |
-| `6` | Установка `fail2ban` с защитой SSH |
-| `7` | Создание и подключение `access.log`/`error.log`, перезапуск сервисов и `logrotate` |
-| `8` | Установка и удаление geofiles |
-| `9` | Смена порта взаимодействия с панелью; пустой ввод выбирает свободный случайный порт |
+| `3` | Установка `rkn-guard`; настройка фильтрации сканеров через `iptables`/`ipset`, логирования и служб systemd |
+| `4` | Подключение сертификатов из `remnawave-nginx` к RemnaNode |
+| `5` | HTTP 301 с порта 80 на HTTPS: правило UFW, правка `nginx.conf` и перезапуск ноды |
+| `6` | Подменю Node Accelerator |
+| `7` | Установка `fail2ban` с защитой SSH |
+| `8` | Создание и подключение `access.log`/`error.log`, перезапуск сервисов и `logrotate` |
+| `9` | Установка и удаление geofiles |
+| `10` | Смена порта взаимодействия с панелью; пустой ввод выбирает свободный случайный порт |
 
 ### Управление
 
 | Пункт | Действие |
 | --- | --- |
-| `10` | Подменю ss-zapret2 |
-| `11` | Подменю Tor |
-| `12` | Подменю Psiphon |
-| `13` | Проверка доступности Discord, YouTube, Telegram и Instagram |
-| `14` | Перезапуск контейнеров RemnaNode |
-| `15` | Перезапуск контейнеров node-agent из `/opt/remnawave-node-agent` |
+| `11` | Подменю ss-zapret2 |
+| `12` | Подменю Tor |
+| `13` | Подменю Psiphon |
+| `14` | Проверка доступности Discord, YouTube, Telegram и Instagram |
+| `15` | Перезапуск контейнеров RemnaNode |
+| `16` | Перезапуск контейнеров node-agent из `/opt/remnawave-node-agent` |
 
 ### Диагностика
 
