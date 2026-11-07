@@ -6,13 +6,12 @@
 сетевыми обходами, geofiles, сертификатами, защитой SSH и диагностикой
 доступности сервисов.
 
-Утилита рассчитана на сервер, где уже установлен
-[RemnaNode](https://github.com/remnawave/node). Она работает от `root` и
-изменяет системные настройки, Docker Compose, systemd, cron и файлы
-конфигурации. Перед изменяющими действиями меню показывает описание операции,
-а перед изменением `docker-compose.yml` создаётся резервная копия.
-
-> Текущая версия: `4.7`
+Основной сценарий — администрирование уже установленной
+[RemnaNode](https://github.com/remnawave/node), хотя часть пунктов помогает
+подготовить и диагностировать сервер без неё. RemnaSuper работает от `root`
+и может менять системные настройки, Docker Compose, systemd, cron, firewall и
+файлы конфигурации. Перед действиями, меняющими систему, меню показывает
+описание операции; перед изменением Compose создаётся резервная копия.
 
 ## Содержание
 
@@ -20,6 +19,7 @@
 - [Требования](#требования)
 - [Установка](#установка)
 - [Запуск](#запуск)
+- [Переменные окружения](#переменные-окружения)
 - [Главное меню](#главное-меню)
 - [Сетевые интеграции](#сетевые-интеграции)
 - [Geofiles](#geofiles)
@@ -33,8 +33,11 @@
 ## Возможности
 
 - Первичная настройка Debian/Ubuntu-подобного сервера:
-  `apt update`, `apt upgrade`, установка `cron`, `mc` и `wget`.
+  `apt-get update`, `apt-get upgrade`, установка `cron`, `mc` и `wget` с
+  последующей автоматической перезагрузкой.
 - Установка официального `remnawave-reverse-proxy`.
+- Установка `rkn-guard` для фильтрации адресов сканеров через `iptables` и
+  `ipset`.
 - Смена порта взаимодействия RemnaNode с панелью с обновлением UFW-правила.
 - Подключение сертификатов из `remnawave-nginx` к `RemnaNode`.
 - HTTP 301 с порта 80 на HTTPS: открытие `80/tcp` в UFW, добавление
@@ -62,9 +65,8 @@
 
 ### Базовые
 
-- Linux-сервер Debian/Ubuntu или совместимый дистрибутив.
-- Bash.
-- Доступ `root` или возможность запускать команды через `sudo`.
+- Сервер Debian/Ubuntu с Bash, GNU-утилитами, `apt-get` и `systemd`.
+- Права `root`; обычно программу запускают командой `sudo rs`.
 - Для установки RemnaSuper: `curl` и `tar`.
 - Доступ к GitHub и внешним URL, которые используются выбранными модулями.
 
@@ -78,9 +80,10 @@
 - Для агента RemnaNode: `/opt/remnawave-node-agent`.
 - Для системных операций: `systemd`, `apt-get`, `cron`.
 
-Не все зависимости нужны одновременно. Например, Docker необходим для
-перезапуска RemnaNode, geofiles, ss-zapret2 и Psiphon, а `systemd` нужен для
-Tor, Psiphon и fail2ban.
+Не все зависимости нужны одновременно: RemnaSuper проверяет необходимые
+команды перед запуском соответствующего действия. Docker с Compose plugin
+нужен для действий с RemnaNode и контейнерными интеграциями; `systemd` — для
+Tor, Psiphon, fail2ban и аварийного восстановления парной диагностики.
 
 ## Установка
 
@@ -113,24 +116,23 @@ sudo rs
 
 Установщик проверяет обязательные файлы архива, сохраняет нестандартный объект
 по пути `/opt/RemnaSuper` с суффиксом `.legacy.*`, если он не является
-каталогом, и устанавливает:
-
-- `/opt/RemnaSuper/RemnaSuper`;
-- `/opt/RemnaSuper/VERSION`;
-- `/opt/RemnaSuper/lib`;
-- `/opt/RemnaSuper/install.sh`;
-- `/opt/RemnaSuper/README.md`;
-- симлинк `/usr/local/bin/rs`.
+каталогом, устанавливает приложение в `/opt/RemnaSuper`, создаёт ссылку
+`/usr/local/bin/rs` и копирует `install.sh` и `README.md`, если они есть в
+архиве.
 
 ### Установка из другой ветки
 
-И установщик, и автообновление поддерживают ветку через
+И установщик, и автообновление используют ветку из переменной
 `REMNASUPER_BRANCH`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SP1K33/RemnaSuper/main/install.sh \
   | sudo REMNASUPER_BRANCH=dev bash
+sudo REMNASUPER_BRANCH=dev rs
 ```
+
+Передавайте переменную и при последующем запуске, чтобы автообновление
+продолжало проверять ту же ветку. Без неё используется `main`.
 
 ## Запуск
 
@@ -140,14 +142,22 @@ RemnaSuper должна запускаться от `root`:
 sudo rs
 ```
 
-Для локальной отладки без проверки обновлений:
+Для запуска без проверки обновлений:
 
 ```bash
 sudo REMNASUPER_SKIP_UPDATE=1 rs
 ```
 
-Значение `REMNASUPER_SKIP_UPDATE=1` отключает только проверку версии
+Значение `REMNASUPER_SKIP_UPDATE=1` отключает только проверку обновлений
 RemnaSuper. Действия самого меню по-прежнему могут менять систему.
+
+## Переменные окружения
+
+| Переменная | Значение по умолчанию | Назначение |
+| --- | --- | --- |
+| `REMNASUPER_BRANCH` | `main` | Ветка GitHub для установщика и автообновления. Указывайте её при установке и каждом запуске `rs`, если используете другую ветку. |
+| `REMNASUPER_SKIP_UPDATE` | `0` | При значении `1` пропускает проверку обновлений на GitHub для текущего запуска. |
+| `REMNASUPER_DIAG_PORT` | `55443` | TCP-порт управляющего канала парной диагностики. Должен быть одинаковым на обеих VPS и находиться в диапазоне `1024–65535`. |
 
 ## Главное меню
 
@@ -164,7 +174,7 @@ RemnaSuper. Действия самого меню по-прежнему мог�
 | `7` | Установка `fail2ban` с защитой SSH |
 | `8` | Создание и подключение `access.log`/`error.log`, перезапуск сервисов и `logrotate` |
 | `9` | Установка и удаление geofiles |
-| `10` | Смена порта взаимодействия с панелью; пустой ввод выбирает свободный случайный порт |
+| `10` | Смена `NODE_PORT` и соответствующего правила UFW с сохранением источника и протокола; требуется ровно одно правило для текущего порта, пустой ввод выбирает свободный порт |
 
 ### Управление
 
@@ -291,7 +301,8 @@ Docker, systemd-сервис и watchdog, а наружу публикуется
 
 Как и Tor, Psiphon-outbound предназначен для TCP-трафика. Ротация или смена
 региона может прервать текущие соединения примерно на 45 секунд. Проверка
-скорости скачивает около 250 МБ тестовых данных.
+скорости использует upstream-команду Psiphon и создаёт дополнительный сетевой
+трафик; его объём зависит от текущей реализации upstream.
 
 ## Geofiles
 
@@ -502,14 +513,9 @@ whitelist, чтобы не потерять SSH-доступ.
 
 ## Автообновление
 
-При запуске RemnaSuper:
-
-1. читает локальную версию из `VERSION`;
-2. получает `VERSION` из выбранной ветки GitHub;
-3. сравнивает версии через `sort -V`;
-4. при наличии более новой версии скачивает архив и обновляет
-   `/opt/RemnaSuper`;
-5. автоматически перезапускает `rs`.
+При запуске RemnaSuper проверяет наличие обновления в выбранной ветке GitHub.
+Если обновление доступно, программа скачивает архив, заменяет файлы в
+`/opt/RemnaSuper` и автоматически перезапускает `rs`.
 
 Если GitHub временно недоступен, RemnaSuper сообщает об ошибке проверки и
 продолжает запуск. Проверку можно отключить на один запуск:
@@ -527,6 +533,7 @@ RemnaNode, Docker, Tor, Psiphon и ss-zapret2 находятся за преде
 | Назначение | Путь |
 | --- | --- |
 | Установка RemnaSuper | `/opt/RemnaSuper` |
+| Резервные копии конфигураций | `/opt/RemnaSuper/backups` |
 | Команда запуска | `/usr/local/bin/rs` |
 | RemnaNode | `/opt/remnanode` |
 | Compose RemnaNode | `/opt/remnanode/docker-compose.yml` |
@@ -536,46 +543,88 @@ RemnaNode, Docker, Tor, Psiphon и ss-zapret2 находятся за преде
 | Конфигурация logrotate | `/etc/logrotate.d/remnanode` |
 | ss-zapret2 | `/opt/ss-zapret2` |
 | Tor-интеграция | `/opt/remnasuper-tor` |
+| Конфигурация Tor | `/etc/tor/torrc.d/remnasuper.conf` |
 | Psiphon | `/opt/vps-psiphon` |
+| Дополнительные подключения Psiphon | `/opt/vps-psiphon-N` |
 | Geofiles | `/opt/remnanode/geofiles` |
+| Служебные журналы парной диагностики | `/var/lib/remnasuper/network-diagnostics/sessions` |
+| Отчёты парной диагностики | `/var/log/remnasuper/network-diagnostics` |
 
 ## Структура проекта
 
 ```text
 RemnaSuper
-├── RemnaSuper             # точка входа и порядок загрузки модулей
-├── install.sh             # установка из архива GitHub
-├── VERSION                # версия для автообновления
-├── AGENTS.md              # правила работы с репозиторием
-├── README.md              # описание установки и возможностей
-├── lib
-│   ├── config.sh          # пути, версии и URL
-│   ├── common.sh          # общие проверки, Compose и бэкапы
-│   ├── ui.sh              # вывод и элементы меню
-│   ├── update.sh          # проверка и установка обновлений
-│   ├── logs.sh            # загрузчик модулей логов
-│   ├── system.sh          # загрузчик системных модулей
-│   ├── geofiles.sh        # загрузчик geofiles
-│   ├── menu.sh            # загрузчик меню
-│   ├── logs/              # логи, logrotate и очистка
-│   ├── system/            # сервисы, диагностика, Tor, Psiphon и zapret
-│   ├── geofiles/          # скачивание, cron и volumes
-│   └── menu/              # главное меню и подменю
-└── icons/                 # графические материалы проекта
+├── RemnaSuper                 # точка входа; загружает модули и запускает меню
+├── install.sh                 # установка из архива GitHub
+├── README.md                  # руководство пользователя и карта проекта
+├── AGENTS.md                  # правила разработки и поддержки
+├── .gitattributes             # единый формат строк LF
+├── .gitignore                 # исключение Python-кэша
+├── icons/                     # block.png, ChatGPT.png, earth.png, Game.png,
+│                              # Russia.png, YouTube.png; установщик и updater их не копируют
+└── lib/
+    ├── config.sh              # пути, ветка и URL
+    ├── common.sh              # проверки, Compose, volumes и резервные копии
+    ├── ui.sh                  # вывод, меню, подтверждения и паузы
+    ├── update.sh              # проверка обновлений и замена файлов приложения
+    ├── logs.sh                # загрузчик модулей логов
+    ├── system.sh              # загрузчик системных действий
+    ├── geofiles.sh            # загрузчик geofiles
+    ├── menu.sh                # загрузчик меню
+    ├── logs/
+    │   ├── remnanode.sh       # подключение логов RemnaNode
+    │   ├── logrotate.sh       # профили и проверка logrotate
+    │   └── cleanup.sh         # операции очистки логов
+    ├── geofiles/
+    │   ├── core.sh            # загрузчик операций geofiles
+    │   ├── providers.sh       # наборы Loyalsoldier и xray-routing
+    │   ├── operations.sh      # установка и удаление наборов
+    │   ├── downloads.sh       # безопасная загрузка и cron
+    │   └── compose.sh         # volumes и перенос старых путей
+    ├── menu/
+    │   ├── actions.sh         # подтверждение действий
+    │   ├── main.sh            # главное меню
+    │   ├── node_accelerator.sh
+    │   ├── geofiles.sh
+    │   ├── zapret.sh
+    │   ├── tor.sh
+    │   └── psiphon.sh          # подменю интеграций
+    └── system/
+        ├── provisioning.sh    # подготовка системы и внешние инструменты
+        ├── services.sh        # перезапуск RemnaNode и node-agent
+        ├── node_port.sh       # смена NODE_PORT и правила UFW
+        ├── certificates.sh    # volumes сертификатов
+        ├── http_redirect.sh   # HTTP 301 и nginx.conf
+        ├── connectivity.sh    # встроенная проверка доступности
+        ├── xray.sh            # просмотр логов Xray
+        ├── tor.sh             # установка и обслуживание Tor
+        ├── psiphon.sh         # управление подключениями Psiphon
+        ├── zapret.sh          # загрузчик ss-zapret2
+        ├── zapret/            # установка, стратегии, runtime и удаление
+        ├── session.sh         # возврат из меню
+        ├── network_diagnostics.sh
+        └── network_diagnostics/
+            ├── agent.py       # координатор и агент двух-VPS диагностики
+            ├── measure.py     # измерительные этапы
+            ├── protocol.py    # аутентифицированный канал управления
+            ├── safety.py      # UFW, журнал ресурсов и аварийное восстановление
+            └── report.py      # JSON/Markdown-отчёты и оценки
 ```
 
 Все модули из `lib/` подключаются через `source` из одной точки входа. Их
-не следует запускать как отдельные программы.
+не следует запускать как отдельные программы. Точка входа загружает модули в
+фиксированном порядке: `config.sh`, `ui.sh`, `common.sh`, `update.sh`,
+`logs.sh`, `system.sh`, `geofiles.sh`, `menu.sh`. Каждый тематический загрузчик
+подключает файлы своей папки.
 
 ## Проверка изменений
-
 
 ```bash
 set -e
 while IFS= read -r -d '' file; do
-  case "$file" in
-    RemnaSuper|*.sh) bash -n "$file" ;;
-  esac
+    case "$file" in
+        RemnaSuper|*.sh) bash -n "$file" ;;
+    esac
 done < <(git ls-files -z)
 ```
 
