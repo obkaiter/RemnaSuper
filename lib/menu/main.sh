@@ -14,32 +14,33 @@ show_menu() {
     menu_item 5 "Установить rkn-guard"
     menu_item 6 "Установить сертификаты в RemnaNode"
     menu_item 7 "HTTP 301 на 80 порте"
-    menu_item 8 "Заглушка: TLS 1.2, TLS 1.3 и HSTS"
-    menu_item 9 "Управление Node Accelerator"
-    menu_item 10 "Установить fail2ban"
-    menu_item 11 "Исправить логи в RemnaNode"
-    menu_item 12 "Установка/удаление geofiles"
-    menu_item 13 "Сменить порт взаимодействия с панелью"
+    menu_item 8 "Отключить IPv6"
+    menu_item 9 "Заглушка: TLS 1.2, TLS 1.3 и HSTS"
+    menu_item 10 "Управление Node Accelerator"
+    menu_item 11 "Установить fail2ban"
+    menu_item 12 "Исправить логи в RemnaNode"
+    menu_item 13 "Установка/удаление geofiles"
+    menu_item 14 "Сменить порт взаимодействия с панелью"
 
     section "Управление"
-    menu_item 14 "Управление ss-zapret2"
-    menu_item 15 "Управление Tor"
-    menu_item 16 "Управление Psiphon"
-    menu_item 17 "Проверить доступность сервисов"
-    menu_item 18 "Перезапустить ноду"
-    menu_item 19 "Перезапустить агента"
+    menu_item 15 "Управление ss-zapret2"
+    menu_item 16 "Управление Tor"
+    menu_item 17 "Управление Psiphon"
+    menu_item 18 "Проверить доступность сервисов"
+    menu_item 19 "Перезапустить ноду"
+    menu_item 20 "Перезапустить агента"
 
     section "Диагностика"
-    menu_item 20 "Запустить ipregion"
-    menu_item 21 "IP Check Place"
-    menu_item 22 "Проверка скорости канала (bench.sh)"
-    menu_item 23 "Просмотр ошибок Xray"
-    menu_item 24 "Просмотр логов Xray"
-    menu_item 25 "Комплексная диагностика соединения между двумя VPS"
+    menu_item 21 "Запустить ipregion"
+    menu_item 22 "IP Check Place"
+    menu_item 23 "Проверка скорости канала (bench.sh)"
+    menu_item 24 "Просмотр ошибок Xray"
+    menu_item 25 "Просмотр логов Xray"
+    menu_item 26 "Комплексная диагностика соединения между двумя VPS"
 
     section "Навигация"
     menu_exit_item
-    prompt_choice "0-25"
+    prompt_choice "0-26"
 }
 
 main_menu() {
@@ -70,48 +71,51 @@ main_menu() {
             7) run_action "HTTP 301 на 80 порте" \
                 "HTTP 301 на 80 порту означает, что сервер отправляет постоянное перенаправление (Moved Permanently) для запросов, приходящих на стандартный незащищенный веб-порт 80 (обычно используемый для HTTP). Будет выполнено ufw allow 80/tcp, в /opt/remnanode/nginx.conf добавлен сервер для перенаправления на HTTPS и перезапущена нода. Текущие подключения могут кратковременно прерваться." \
                 enable_http_redirect ;;
-            8) run_action "Заглушка: TLS 1.2, TLS 1.3 и HSTS" \
+            8) run_action "Отключить IPv6" \
+                "IPv6 будет отключён на существующих и новых сетевых интерфейсах сразу и после перезагрузки. Будет создан файл /etc/sysctl.d/zzzz-remnasuper-disable-ipv6.conf и применены системные параметры; открытый по IPv6 SSH-сеанс или другие IPv6-подключения могут прерваться. После этого сервер будет доступен по IPv4, если он настроен." \
+                disable_ipv6 ;;
+            9) run_action "Заглушка: TLS 1.2, TLS 1.3 и HSTS" \
                 "В каждый TLS server-блок с доменным server_name в /opt/remnanode/nginx.conf будет добавлен заголовок Strict-Transport-Security со сроком 1 год и includeSubDomains. Перед заменой файла будет создана резервная копия, конфигурация nginx будет проверена в контейнере, затем контейнеры RemnaNode будут перезапущены. Текущие подключения могут кратковременно прерваться." \
                 enable_tls_hsts ;;
-            9) node_accelerator_menu ;;
-            10) run_action "Установка fail2ban" \
+            10) node_accelerator_menu ;;
+            11) run_action "Установка fail2ban" \
                 "Будет установлен fail2ban, включена защита SSH с четырьмя попытками входа за 10 минут и блокировкой на один час, после чего сервис будет добавлен в автозапуск и запущен." \
                 install_fail2ban ;;
-            11) run_action "Исправление логов RemnaNode" \
+            12) run_action "Исправление логов RemnaNode" \
                 "Будут созданы access.log и error.log, каталог логов подключён к RemnaNode в docker-compose.yml, нода и агент перезапущены, затем будет предложена настройка ротации логов." \
                 fix_logs ;;
-            12) geofiles_menu ;;
-            13) run_action "Смена порта взаимодействия с панелью" \
+            13) geofiles_menu ;;
+            14) run_action "Смена порта взаимодействия с панелью" \
                 "В docker-compose.yml будет изменён порт NODE_PORT, а правило UFW для IP-адреса панели перенесено на новый порт. Если порт не указан, будет выбран свободный случайный порт. Затем нода будет перезапущена; подключения могут прерваться на 5–10 секунд." \
                 change_node_port ;;
-            14) zapret_menu ;;
-            15) tor_menu ;;
-            16) psiphon_menu ;;
-            17) run_action "Проверка доступности сервисов" \
+            15) zapret_menu ;;
+            16) tor_menu ;;
+            17) psiphon_menu ;;
+            18) run_action "Проверка доступности сервисов" \
                 "Встроенная диагностика проверит Discord, YouTube, Telegram и Instagram: DNS-адреса, ICMP-пинг, HTTP-статус, конечный IP и задержки DNS/TCP/TLS/TTFB. Внешние скрипты и пакеты не скачиваются и не устанавливаются." \
                 run_connectivity_check ;;
-            18) run_action "Перезапуск ноды" \
+            19) run_action "Перезапуск ноды" \
                 "Docker Compose перезапустит сервисы RemnaNode. Текущие подключения могут прерваться на 5-10 секунд." \
                 restart_node ;;
-            19) run_action "Перезапуск агента" \
+            20) run_action "Перезапуск агента" \
                 "Docker Compose перезапустит сервисы агента в /opt/remnawave/node-agent." \
                 restart_agent ;;
-            20) run_action "Запуск ipregion" \
+            21) run_action "Запуск ipregion" \
                 "Будет скачан и запущен скрипт ipregion из репозитория Davoyan/ipregion." \
                 run_ipregion ;;
-            21) run_action "IP Check Place" \
+            22) run_action "IP Check Place" \
                 "Будет скачан и запущен диагностический скрипт IP Check Place на английском языке." \
                 run_ip_check_place ;;
-            22) run_action "Проверка скорости канала (bench.sh)" \
+            23) run_action "Проверка скорости канала (bench.sh)" \
                 "Будет скачан и запущен скрипт bench.sh для проверки скорости канала." \
                 run_bench ;;
-            23) run_action "Просмотр ошибок Xray" \
+            24) run_action "Просмотр ошибок Xray" \
                 "Будет открыт непрерывный вывод /var/log/supervisor/xray.out.log из контейнера remnanode. Для выхода нажмите Ctrl+C." \
                 view_errors ;;
-            24) run_action "Просмотр логов Xray" \
+            25) run_action "Просмотр логов Xray" \
                 "Будет выполнена команда tail -f /var/log/remnanode/access.log. Для выхода нажмите Ctrl+C." \
                 view_xray_logs ;;
-            25) run_action "Парная диагностика двух VPS" \
+            26) run_action "Парная диагностика двух VPS" \
                 "Недостающие пакеты Python 3, iperf3, UFW и сетевых утилит будут предложены для отдельной постоянной установки через apt-get. UFW должен быть активен с входящей политикой deny: автоматически он не включается. Временно откроются адресные TCP/UDP-порты только для второй VPS; агент закроет собственные правила и слушатели, удалит тестовые файлы и сообщит, если очистка не удалась. Выбор готового профиля даёт ориентир 5, 15 или 30 минут без общего ограничения времени; средний и полный передают по 1 GiB файлами в каждую сторону, плюс TCP/UDP-трафик. Нагрузка может замедлить VPN и расходовать платный трафик. Отчёты сохраняются." \
                 run_network_diagnostics ;;
             0) run_action "Выход" \
