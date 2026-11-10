@@ -15,6 +15,7 @@ GITHUB_REPO="SP1K33/RemnaSuper"
 GITHUB_BRANCH="${REMNASUPER_BRANCH:-main}"
 GITHUB_RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}"
 GITHUB_TARBALL_URL="https://codeload.github.com/${GITHUB_REPO}/tar.gz/refs/heads/${GITHUB_BRANCH}"
+NODE_PRECHECK_URL="https://vpn-hub.pro/static/tools/node-precheck.sh"
 
 NODE_DIR="/opt/remnanode"
 AGENT_DIR="/opt/remnawave-node-agent"

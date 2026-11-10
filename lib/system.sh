@@ -7,6 +7,7 @@ _remnasuper_load_system_modules() {
     source "$module_dir/services.sh"
     source "$module_dir/node_port.sh"
     source "$module_dir/provisioning.sh"
+    source "$module_dir/node_precheck.sh"
     source "$module_dir/ssh_keys.sh"
     source "$module_dir/connectivity.sh"
     source "$module_dir/xray.sh"
