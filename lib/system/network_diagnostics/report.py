@@ -218,7 +218,7 @@ def summary(data):
         lines.extend("- " + item for item in data["cleanup_errors"])
         lines.append("Журнал: `%s`. Сверьте `ufw status numbered` с полными атрибутами "
                      "и комментарием `rsdiag` в журнале. Не удаляйте похожие чужие правила. "
-                     "После проверки выполните штатное восстановление через повторный запуск пункта 22." %
+                     "После проверки выполните штатное восстановление через повторный запуск пункта 23." %
                      data.get("cleanup_journal", "неизвестно"))
     if data.get("remote_cleanup_errors"):
         lines.extend(["", "## Очистка на второй VPS не завершена", ""])
