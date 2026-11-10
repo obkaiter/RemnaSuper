@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 show_ssh_key_commands() {
-    local login="$1" host="$2" port="$3" transfer_dir="$4"
-    local local_dir="\$HOME/.ssh/${transfer_dir##*/}"
+    local login="$1" host="$2" port="$3" transfer_dir="$4" key_folder="$5"
+    local local_dir="\$HOME/.ssh/$key_folder"
     local scp_host="$host" remote_key proof_command
     local proof_options="-F none -T -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey"
 
@@ -42,6 +42,7 @@ EOF
 
 setup_ssh_key_login() (
     local login account home auth_keys host port default_port default_host
+    local key_folder default_folder folder_stem
     local command_name lock_fd transfer_dir key_comment public_key candidate backup_file restore_file policy_candidate
     local connection client_addr client_port server_addr server_port connection_spec effective_config
     local deadline key_added=0 config_changed=0 committed=0 keep_key=0
@@ -121,6 +122,21 @@ setup_ssh_key_login() (
         error "Укажите корректный IP-адрес или домен и порт SSH от 1 до 65535."
         return 1
     fi
+    default_folder="ssh-${host//[^a-zA-Z0-9._-]/-}"
+    default_folder="${default_folder:0:64}"
+    [[ "$default_folder" == *. ]] && default_folder="${default_folder%.}-"
+    while true; do
+        read -rp "Имя новой папки для ключа внутри ~/.ssh [$default_folder]: " key_folder || return 1
+        key_folder="${key_folder:-$default_folder}"
+        folder_stem="${key_folder%%.*}"
+        if [[ ! "$key_folder" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$ || "$key_folder" == *. ]]; then
+            warn "Введите от 1 до 64 латинских букв, цифр, дефисов, подчёркиваний или точек. Начните с буквы или цифры и не ставьте точку в конце."
+        elif [[ "${folder_stem^^}" =~ ^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$ ]]; then
+            warn "Это имя зарезервировано в Windows. Выберите другое."
+        else
+            break
+        fi
+    done
 
     trap cleanup_ssh_key_setup EXIT
     trap 'exit 130' INT
@@ -153,7 +169,7 @@ setup_ssh_key_login() (
         error "Не удалось добавить открытый ключ в $auth_keys."
         return 1
     fi
-    show_ssh_key_commands "$login" "$host" "$port" "$transfer_dir"
+    show_ssh_key_commands "$login" "$host" "$port" "$transfer_dir" "$key_folder"
     info "Ожидаю проверку нового ключа до 5 минут. Для отмены нажмите Ctrl+C."
     deadline=$((SECONDS + 300))
     until IFS= read -r -n 256 connection < "$transfer_dir/verified"; do
