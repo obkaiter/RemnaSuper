@@ -61,8 +61,9 @@ menu_section() {
 }
 
 menu_item() {
+    local color="${3:-$'\e[0;37m'}"
     local label
-    printf -v label '    %b%s%b' "${3:-}" "$2" "${3:+$NC}"
+    printf -v label '    %b%s%b' "$color" "$2" "$NC"
     menu_positions+=("${#menu_rows[@]}")
     menu_values+=("$1")
     menu_rows+=("$label")
@@ -132,7 +133,7 @@ select_menu() {
         fi
         for ((row = first_row; row < first_row + visible_rows && row < ${#menu_rows[@]}; row++)); do
             if (( row == selected_row )); then
-                printf -v frame '%s  %b>%b %s\n' "$frame" "$GREEN" "$NC" "${menu_rows[row]:4}"
+                printf -v frame '%s  %b→%b %s\n' "$frame" "$GREEN" "$NC" "${menu_rows[row]:4}"
             else
                 frame+="${menu_rows[row]}"$'\n'
             fi
