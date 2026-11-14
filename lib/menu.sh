@@ -10,6 +10,7 @@ _remnasuper_load_menu_modules() {
     source "$module_dir/psiphon.sh"
     source "$module_dir/geofiles.sh"
     source "$module_dir/node_accelerator.sh"
+    source "$module_dir/setup.sh"
     source "$module_dir/main.sh"
 }
 
