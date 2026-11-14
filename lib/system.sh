@@ -12,6 +12,7 @@ _remnasuper_load_system_modules() {
     source "$module_dir/connectivity.sh"
     source "$module_dir/xray.sh"
     source "$module_dir/tor.sh"
+    source "$module_dir/warp.sh"
     source "$module_dir/psiphon.sh"
     source "$module_dir/zapret.sh"
     source "$module_dir/certificates.sh"
