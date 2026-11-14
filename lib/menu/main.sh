@@ -18,7 +18,7 @@ show_menu() {
     menu_item 7 "Запустить IP Check Place"
     menu_item 8 "Запустить bench.sh (проверка скорости канала)"
     menu_item 9 "Проверить доступность сервисов"
-    menu_item 10 "Просмотр ошибок Xray"
+    menu_item 10 "Просмотр xlogs"
     menu_item 11 "Просмотр логов Xray"
     menu_item 12 "Комплексная диагностика соединения между двумя VPS"
 
@@ -53,9 +53,9 @@ main_menu() {
             9) run_action "Проверка доступности сервисов" \
                 "Встроенная диагностика проверит Discord, YouTube, Telegram и Instagram: DNS-адреса, ICMP-пинг, HTTP-статус, конечный IP и задержки DNS/TCP/TLS/TTFB. Внешние скрипты и пакеты не скачиваются и не устанавливаются." \
                 run_connectivity_check ;;
-            10) run_action "Просмотр ошибок Xray" \
-                "Будет открыт непрерывный вывод /var/log/supervisor/xray.out.log из контейнера remnanode. Для выхода нажмите Ctrl+C." \
-                view_errors ;;
+            10) run_action "Просмотр xlogs" \
+                "Будет выполнена команда docker exec remnanode xlogs. Для выхода нажмите Ctrl+C." \
+                view_xlogs ;;
             11) run_action "Просмотр логов Xray" \
                 "Будет выполнена команда tail -f /var/log/remnanode/access.log. Для выхода нажмите Ctrl+C." \
                 view_xray_logs ;;
