@@ -4,24 +4,22 @@ show_zapret_menu() {
     clear
     show_brand "Управление ss-zapret2"
 
-    section "Управление"
+    menu_section "Управление"
     menu_item 1 "Установить ss-zapret2"
     menu_item 2 "Поиск стратегии"
     menu_item 3 "Показать текущую стратегию"
     menu_item 4 "Установить стратегию вручную"
     menu_danger_item 5 "Удалить ss-zapret2"
 
-    section "Навигация"
+    menu_section "Навигация"
     menu_back_item
-    prompt_choice "0-5"
 }
 
 zapret_menu() {
     local choice
 
     while true; do
-        show_zapret_menu
-        read -r choice
+        select_menu choice 1 show_zapret_menu || return
         case $choice in
             1) run_action "Установка ss-zapret2" \
                 "Будет установлен Docker-контейнер vernette/ss-zapret2 с локальным SOCKS5, проверена его доступность и создан готовый outbound для Xray. При наличии прежнего ss-zapret он будет остановлен, его .env перенесён, а старые файлы сохранены." \
@@ -39,7 +37,6 @@ zapret_menu() {
                 "Контейнер ss-zapret2 будет остановлен, Docker-образ и каталог /opt/ss-zapret2 со всеми настройками и Xray outbound будут удалены. Сохранённый каталог прежней версии /opt/ss-zapret затронут не будет." \
                 uninstall_ss_zapret ;;
             0) return ;;
-            *) warn "Неверный выбор."; sleep 1 ;;
         esac
     done
 }

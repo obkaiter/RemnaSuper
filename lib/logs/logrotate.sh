@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-setup_logrotate() {
+show_logrotate_menu() {
     header "Настройка ротации логов"
     if [ -f "$ROTATE_CONF" ]; then
         printf "${CYAN}Текущий конфиг:${NC}\n\n"
@@ -8,16 +8,24 @@ setup_logrotate() {
         printf "\n"
     fi
 
-    section "Профиль"
+    menu_section "Профиль"
     menu_item 1 "Малая нода (<100): ежедневно, хранить 7 дней"
     menu_item 2 "Средняя нода (100-500): ежедневно, хранить 3 дня"
     menu_item 3 "Высокая нагрузка (>500): ротация по размеру 100МБ"
     menu_item 4 "Кастомный конфиг в nano"
     menu_back_item
-    prompt_choice "0-4"
-    read -r profile
+}
 
-    mkdir -p "$(dirname "$ROTATE_CONF")"
+setup_logrotate() {
+    local profile
+
+    select_menu profile 0 show_logrotate_menu || return
+    [[ "$profile" != 0 ]] || return 0
+    if ! mkdir -p "$(dirname "$ROTATE_CONF")"; then
+        error "Не удалось создать каталог для конфигурации logrotate."
+        pause
+        return 1
+    fi
     case $profile in
         1)
             cat > "$ROTATE_CONF" << 'EOF'
@@ -68,14 +76,6 @@ EOF
             info "Редактирование: $ROTATE_CONF"
             nano "$ROTATE_CONF"
             success "Сохранено."
-            ;;
-        0)
-            return
-            ;;
-        *)
-            warn "Неверный выбор."
-            sleep 1
-            return
             ;;
     esac
 

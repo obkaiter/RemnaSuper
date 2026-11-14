@@ -4,27 +4,25 @@ show_geofiles_menu() {
     clear
     show_brand "Geofiles"
 
-    section "Установка"
+    menu_section "Установка"
     menu_item 1 "Установить все geofiles"
     menu_item 2 "Установить Loyalsoldier-geofiles"
     menu_item 3 "Установить xray-routing geofiles"
 
-    section "Удаление"
+    menu_section "Удаление"
     menu_danger_item 4 "Удалить все geofiles"
     menu_danger_item 5 "Удалить Loyalsoldier-geofiles"
     menu_danger_item 6 "Удалить xray-routing geofiles"
 
-    section "Навигация"
+    menu_section "Навигация"
     menu_back_item
-    prompt_choice "0-6"
 }
 
 geofiles_menu() {
     local choice
 
     while true; do
-        show_geofiles_menu
-        read -r choice
+        select_menu choice 1 show_geofiles_menu || return
         case $choice in
             1) run_geofiles_action "Установка всех geofiles" \
                 "Будут установлены наборы Loyalsoldier и xray-routing, подключены к RemnaNode и добавлены в автоматическое еженедельное обновление." \
@@ -45,7 +43,6 @@ geofiles_menu() {
                 "Файлы xray-routing будут удалены, их volumes исключены из docker-compose.yml, а задание автоматического обновления будет удалено." \
                 uninstall_xray_routing_geofiles ;;
             0) return ;;
-            *) warn "Неверный выбор."; sleep 1 ;;
         esac
     done
 }

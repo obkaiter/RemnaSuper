@@ -4,17 +4,17 @@ show_setup_menu() {
     clear
     show_brand "Первоначальная настройка"
 
-    section "Проверка сервера"
+    menu_section "Проверка сервера"
     menu_item 1 "Node Precheck"
 
-    section "Настройка VPS"
+    menu_section "Настройка VPS"
     menu_item 2 "Сгенерировать ssh-ключ и отключить вход по паролю"
     menu_item 3 "apt update && apt upgrade"
     menu_item 4 "Отключить IPv6"
     menu_item 5 "Установить fail2ban"
     menu_item 6 "Установить rkn-guard"
 
-    section "Настройка ноды"
+    menu_section "Настройка ноды"
     menu_item 7 "Установить remnawave-reverse-proxy"
     menu_item 8 "Сменить порт взаимодействия с панелью"
     menu_item 9 "Установить сертификаты"
@@ -24,17 +24,15 @@ show_setup_menu() {
     menu_item 13 "Установка/удаление geofiles"
     menu_item 14 "Управление Node Accelerator"
 
-    section "Навигация"
+    menu_section "Навигация"
     menu_back_item
-    prompt_choice "0-14"
 }
 
 initial_setup_menu() {
     local choice
 
     while true; do
-        show_setup_menu
-        read -r choice
+        select_menu choice 1 show_setup_menu || return
         case $choice in
             1) run_action "Node Precheck" \
                 "Скрипт будет загружен с vpn-hub.pro и выполнен через Bash с правами root. Он считывает сведения об ОС, процессоре, памяти, диске, сетевых интерфейсах, открытых портах и firewall; публичный IP отправляется внешним сервисам для геолокации и проверок. Globalping проверит этот IP по ICMP и TCP/22 из сетей РФ. Тест скорости может скачать до 100 МБ с Cloudflare и до 100 МБ с Selectel, а также отправить до 25 МБ на Cloudflare. Постоянные файлы и настройки не изменяются; тест записи на диск по умолчанию выключен." \
@@ -75,7 +73,6 @@ initial_setup_menu() {
             13) geofiles_menu ;;
             14) node_accelerator_menu ;;
             0) return ;;
-            *) warn "Неверный выбор."; sleep 1 ;;
         esac
     done
 }

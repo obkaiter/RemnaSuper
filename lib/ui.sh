@@ -54,29 +54,123 @@ section() {
     printf "\n${BOLD}%s${NC}\n" "$1"
 }
 
+menu_section() {
+    local title
+    printf -v title "${BOLD}%s${NC}" "$1"
+    menu_rows+=("" "$title")
+}
+
 menu_item() {
-    local number="$1"
-    local title="$2"
-    printf "  ${GREEN}%2s${NC}  %s\n" "$number" "$title"
+    local label
+    printf -v label '    %b%s%b' "${3:-}" "$2" "${3:+$NC}"
+    menu_positions+=("${#menu_rows[@]}")
+    menu_values+=("$1")
+    menu_rows+=("$label")
 }
 
 menu_danger_item() {
-    local number="$1"
-    local title="$2"
-    printf "  ${RED}%2s${NC}  %s\n" "$number" "$title"
+    menu_item "$1" "$2" "$RED"
 }
 
 menu_back_item() {
-    printf "  ${BLUE}%2s${NC}  %s\n" "0" "Назад"
+    menu_item 0 "Назад" "$BLUE"
 }
 
-menu_exit_item() {
-    printf "  ${RED}%2s${NC}  %s\n" "0" "Выход"
+show_menu_options() {
+    menu_section "$1"
+    shift
+    while (( $# )); do
+        menu_item "$1" "$2"
+        shift 2 || return
+    done
 }
 
-prompt_choice() {
-    local range="$1"
-    printf "\n${CYAN}Выбор [%s]:${NC} " "$range"
+select_menu() {
+    local output_variable="$1"
+    local default_value="$2"
+    local render_menu="$3"
+    shift 3
+
+    local -a menu_rows=() menu_positions=() menu_values=()
+    local key terminal_size terminal_height visible_rows selected_row row frame
+    local selected=0 first_row=0 rendered_rows=0
+
+    if [[ ! -t 0 || ! -t 1 ]]; then
+        error "Для выбора пункта меню нужен интерактивный терминал." >&2
+        return 1
+    fi
+    check_command stty || return 1
+    "$render_menu" "$@" || return
+    (( ${#menu_values[@]} )) || return 1
+    for row in "${!menu_values[@]}"; do
+        if [[ "${menu_values[row]}" == "$default_value" ]]; then
+            selected=$row
+            break
+        fi
+    done
+
+    while true; do
+        terminal_size="$(stty size 2>/dev/null)" || terminal_size=
+        terminal_height="${terminal_size%% *}"
+        if [[ ! "$terminal_height" =~ ^[1-9][0-9]*$ ]]; then
+            terminal_height=24
+        fi
+        visible_rows=$((terminal_height > 1 ? terminal_height - 1 : 1))
+        selected_row=${menu_positions[selected]}
+        if (( selected_row < first_row )); then
+            first_row=$selected_row
+        elif (( selected_row >= first_row + visible_rows )); then
+            first_row=$((selected_row - visible_rows + 1))
+        fi
+        if (( first_row + visible_rows > ${#menu_rows[@]} )); then
+            first_row=$(( ${#menu_rows[@]} > visible_rows ? ${#menu_rows[@]} - visible_rows : 0 ))
+        fi
+
+        frame=
+        if (( rendered_rows )); then
+            printf -v frame '\r\e[%dA\e[J' "$rendered_rows"
+        fi
+        for ((row = first_row; row < first_row + visible_rows && row < ${#menu_rows[@]}; row++)); do
+            if (( row == selected_row )); then
+                printf -v frame '%s  %b>%b %s\n' "$frame" "$GREEN" "$NC" "${menu_rows[row]:4}"
+            else
+                frame+="${menu_rows[row]}"$'\n'
+            fi
+        done
+        rendered_rows=$((row - first_row))
+        printf '\e[?7l%s%b↑/↓ — перемещение, Enter — выбрать%b\e[?7h' "$frame" "$DIM" "$NC"
+
+        while true; do
+            if ! IFS= read -rsn1 key; then
+                printf '\n'
+                return 1
+            fi
+            case "$key" in
+                ''|$'\r')
+                    printf '\n'
+                    printf -v "$output_variable" '%s' "${menu_values[selected]}"
+                    return
+                    ;;
+                $'\004')
+                    printf '\n'
+                    return 1
+                    ;;
+                $'\e')
+                    IFS= read -rsn1 -t 0.2 key || continue
+                    [[ "$key" == '[' || "$key" == O ]] || continue
+                    while IFS= read -rsn1 -t 0.2 key && [[ "$key" == [\ -\?] ]]; do
+                        :
+                    done
+                    case "$key" in
+                        A) selected=$(( (selected + ${#menu_values[@]} - 1) % ${#menu_values[@]} )) ;;
+                        B) selected=$(( (selected + 1) % ${#menu_values[@]} )) ;;
+                        *) continue ;;
+                    esac
+                    break
+                    ;;
+            esac
+        done
+    done
 }
 
 pause() {
