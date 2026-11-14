@@ -34,6 +34,18 @@ show_startup() {
 }
 
 header() {
+    case "${remnasuper_action_header_state:-}" in
+        first)
+            remnasuper_action_header_state=following
+            printf "\n"
+            return
+            ;;
+        following)
+            section "$1"
+            return
+            ;;
+    esac
+
     printf "\n"
     show_brand "$1"
 }

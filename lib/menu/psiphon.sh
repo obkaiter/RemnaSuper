@@ -30,7 +30,8 @@ select_psiphon_connection() {
     local instance
     local choice
 
-    header "Выбор подключения Psiphon"
+    clear
+    show_brand "Выбор подключения Psiphon"
     instances="$(list_psiphon_instances)"
     if [ -z "$instances" ]; then
         warn "Установленные подключения Psiphon не найдены."
