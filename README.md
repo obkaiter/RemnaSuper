@@ -62,7 +62,7 @@
 - Управление [Node Accelerator](https://github.com/jestivald/node-accelerator):
   оптимизация, защита, диагностика, CLI-отчёты и откат установленных модулей.
 - Встроенная проверка доступности Discord, YouTube, Telegram и Instagram.
-- Просмотр ошибок и access-логов Xray.
+- Просмотр `xlogs` и access-логов Xray.
 - Проверка нового сервера через `Node Precheck`.
 - Дополнительные диагностические команды `ipregion`, `IP Check Place` и
   `bench.sh`.
@@ -209,7 +209,7 @@ RemnaSuper. Действия самого меню по-прежнему мог�
 | `20` | Запуск `IP Check Place` |
 | `21` | Проверка канала через `bench.sh` |
 | `22` | Проверка доступности Discord, YouTube, Telegram и Instagram |
-| `23` | Просмотр `/var/log/supervisor/xray.out.log` в контейнере `remnanode` |
+| `23` | Просмотр логов командой `docker exec remnanode xlogs` |
 | `24` | Просмотр `/var/log/remnanode/access.log` в реальном времени |
 | `25` | Комплексная парная диагностика соединения между двумя VPS |
 
@@ -479,7 +479,7 @@ VPS или VM: проверьте неверный секрет и IP, заня�
 
 ### Логи RemnaNode
 
-Пункт **Исправить логи RemnaNode**:
+Пункт **Исправить логи (access.log, xray.out.log)**:
 
 1. создаёт `/var/log/remnanode/access.log` и `error.log`;
 2. подключает каталог к сервису `remnanode`;

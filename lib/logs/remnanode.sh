@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 fix_logs() {
-    header "Исправление логов RemnaNode"
+    header "Исправить логи (access.log, xray.out.log)"
     check_docker || { pause; return; }
 
     if [ ! -f "$COMPOSE_FILE" ]; then

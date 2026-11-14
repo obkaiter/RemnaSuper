@@ -16,11 +16,11 @@ follow_until_interrupt() {
     pause
 }
 
-view_errors() {
-    header "Просмотр ошибок"
+view_xlogs() {
+    header "Просмотр xlogs"
     check_docker || { pause; return; }
 
-    follow_until_interrupt docker exec -it remnanode tail -n +1 -f /var/log/supervisor/xray.out.log
+    follow_until_interrupt docker exec -it remnanode xlogs
 }
 
 view_xray_logs() {
