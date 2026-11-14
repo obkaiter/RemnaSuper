@@ -4,29 +4,27 @@ show_node_accelerator_menu() {
     clear
     show_brand "Управление Node Accelerator"
 
-    section "Установка и запуск"
+    menu_section "Установка и запуск"
     menu_item 1 "Установить оптимизатор"
     menu_item 2 "Установить защиту"
     menu_item 3 "Запустить диагностику"
     menu_item 4 "Установить все модули"
     menu_item 5 "Установить/обновить CLI диагностики"
 
-    section "Удаление"
+    menu_section "Удаление"
     menu_danger_item 6 "Удалить оптимизатор"
     menu_danger_item 7 "Удалить защиту"
     menu_danger_item 8 "Удалить оптимизатор и защиту"
 
-    section "Навигация"
+    menu_section "Навигация"
     menu_back_item
-    prompt_choice "0-8"
 }
 
 node_accelerator_menu() {
     local choice
 
     while true; do
-        show_node_accelerator_menu
-        read -r choice
+        select_menu choice 1 show_node_accelerator_menu || return
         case $choice in
             1) run_action "Установка оптимизатора Node Accelerator" \
                 "Будет установлен модуль optimize: XanMod с BBRv3 и системным тюнингом. После успеха VPS автоматически перезагрузится; подключения прервутся." \
@@ -53,7 +51,6 @@ node_accelerator_menu() {
                 "Будет выполнен штатный rollback all для защиты и оптимизатора. XanMod и CrowdSec по правилам upstream останутся установленными; CLI диагностики будет удалён, если активных модулей больше нет." \
                 run_node_accelerator rollback all ;;
             0) return ;;
-            *) warn "Неверный выбор."; sleep 1 ;;
         esac
     done
 }

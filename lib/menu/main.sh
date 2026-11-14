@@ -4,16 +4,16 @@ show_menu() {
     clear
     show_brand "Главное меню"
 
-    section "Настройка"
+    menu_section "Настройка"
     menu_item 1 "Первоначальная настройка"
 
-    section "Управление"
+    menu_section "Управление"
     menu_item 2 "Управление Psiphon"
     menu_item 3 "Управление Tor"
     menu_item 4 "Управление ss-zapret2"
     menu_item 5 "Перезапустить ноду"
 
-    section "Диагностика"
+    menu_section "Диагностика"
     menu_item 6 "Запустить Davoyan/ipregion"
     menu_item 7 "Запустить IP Check Place"
     menu_item 8 "Запустить bench.sh (проверка скорости канала)"
@@ -22,17 +22,15 @@ show_menu() {
     menu_item 11 "Просмотр логов Xray"
     menu_item 12 "Комплексная диагностика соединения между двумя VPS"
 
-    section "Навигация"
-    menu_exit_item
-    prompt_choice "0-12"
+    menu_section "Навигация"
+    menu_danger_item 0 "Выход"
 }
 
 main_menu() {
     local choice
 
     while true; do
-        show_menu
-        read -r choice
+        select_menu choice 1 show_menu || return
         case $choice in
             1) initial_setup_menu ;;
             2) psiphon_menu ;;
@@ -65,7 +63,6 @@ main_menu() {
             0) run_action "Выход" \
                 "Работа RemnaSuper будет завершена." \
                 exit_menu ;;
-            *) warn "Неверный выбор."; sleep 1 ;;
         esac
     done
 }

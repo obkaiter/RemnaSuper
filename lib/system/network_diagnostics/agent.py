@@ -9,6 +9,7 @@ import re
 import secrets
 import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -67,9 +68,18 @@ class SessionStop:
                 (session.control is not None and session.control.stop.is_set()))
 
 
-def question(label, default):
-    answer = input("%s [%s]: " % (label, default)).strip()
-    return answer or str(default)
+def choose_menu(title, default, *options):
+    lib_dir = Path(__file__).resolve().parents[2]
+    sys.stdout.flush()
+    result = subprocess.run(
+        ["bash", "-c",
+         'source "$1/ui.sh"; source "$1/common.sh"; shift; '
+         'select_menu choice "$1" show_menu_options "${@:2}" >&2 && printf "%s\\n" "$choice"',
+         "remnasuper-menu", str(lib_dir), default, title, *options],
+        stdout=subprocess.PIPE, stderr=sys.stdout, text=True)
+    if result.returncode != 0:
+        raise EOFError("Выбор пункта отменён")
+    return result.stdout.strip()
 
 
 def peer_ip():
@@ -103,11 +113,10 @@ def show_local_ips():
 
 
 def settings():
-    print("Профиль: 1 — быстрый (около 5 минут), 2 — средний (около 15 минут), "
-          "3 — полный (около 30 минут)")
-    choice = question("Выбор профиля", "2")
-    if choice not in PROFILE_PRESETS:
-        raise ValueError("Выберите профиль 1, 2 или 3")
+    choice = choose_menu("Профиль диагностики", "2",
+                         "1", "Быстрый (около 5 минут)",
+                         "2", "Средний (около 15 минут)",
+                         "3", "Полный (около 30 минут)")
     return dict(PROFILE_PRESETS[choice])
 
 
@@ -834,9 +843,9 @@ def run():
             raise RuntimeError("Незавершённая прежняя сессия: %s" % "; ".join(problems))
         print("RemnaSuper — парная диагностика двух VPS")
         peer = peer_ip()
-        role = question("Роль: 1 — создать (A), 2 — присоединиться (B)", "1")
-        if role not in ("1", "2"):
-            raise ValueError("Неверная роль")
+        role = choose_menu("Роль в парной диагностике", "1",
+                           "1", "Создать парную сессию (A)",
+                           "2", "Присоединиться (B)")
         try:
             port = int(os.environ.get("REMNASUPER_DIAG_PORT", "55443"))
         except ValueError as exc:

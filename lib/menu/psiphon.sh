@@ -4,7 +4,7 @@ show_psiphon_menu() {
     clear
     show_brand "Управление Psiphon — подключение №$PSIPHON_INSTANCE"
 
-    section "Управление"
+    menu_section "Управление"
     menu_item 1 "Установить или переустановить это подключение"
     menu_item 2 "Показать состояние"
     menu_item 3 "Сменить выходной IP"
@@ -19,52 +19,53 @@ show_psiphon_menu() {
     menu_item 12 "Выбрать другое подключение"
     menu_item 13 "Добавить подключение"
 
-    section "Навигация"
+    menu_section "Навигация"
     menu_back_item
-    prompt_choice "0-13"
 }
 
-select_psiphon_connection() {
-    local saved_instance="$PSIPHON_INSTANCE"
-    local instances
+show_psiphon_connections() {
     local instance
-    local choice
+    local PSIPHON_INSTANCE PSIPHON_DIR PSIPHON_ENV_FILE PSIPHON_CLI
+    local PSIPHON_SERVICE PSIPHON_OUTBOUND_TAG PSIPHON_OUTBOUND_FILE
 
     clear
     show_brand "Выбор подключения Psiphon"
-    instances="$(list_psiphon_instances)"
-    if [ -z "$instances" ]; then
+
+    menu_section "Найденные подключения"
+    for instance in "$@"; do
+        set_psiphon_instance "$instance" || continue
+        if [ -x "$PSIPHON_CLI" ] && systemctl is-active --quiet "$PSIPHON_SERVICE"; then
+            menu_item "$instance" "№$instance — запущено ($PSIPHON_SERVICE)"
+        elif [ -x "$PSIPHON_CLI" ]; then
+            menu_item "$instance" "№$instance — установлено, не запущено ($PSIPHON_SERVICE)"
+        else
+            menu_item "$instance" "№$instance — неполная установка"
+        fi
+    done
+    menu_back_item
+}
+
+select_psiphon_connection() {
+    local -a instances
+    local choice
+
+    mapfile -t instances < <(list_psiphon_instances)
+    if (( ${#instances[@]} == 0 )); then
+        clear
+        show_brand "Выбор подключения Psiphon"
         warn "Установленные подключения Psiphon не найдены."
         pause
         return
     fi
 
-    section "Найденные подключения"
-    while IFS= read -r instance; do
-        [ -n "$instance" ] || continue
-        set_psiphon_instance "$instance" || continue
-        if [ -x "$PSIPHON_CLI" ] && systemctl is-active --quiet "$PSIPHON_SERVICE"; then
-            printf "  №%-2s  запущено  (%s)\n" "$instance" "$PSIPHON_SERVICE"
-        elif [ -x "$PSIPHON_CLI" ]; then
-            printf "  №%-2s  установлено, не запущено  (%s)\n" "$instance" "$PSIPHON_SERVICE"
-        else
-            printf "  №%-2s  неполная установка\n" "$instance"
-        fi
-    done <<< "$instances"
-
-    printf "\nВведите номер подключения или 0 для отмены: "
-    read -r choice
-    if [ "$choice" = "0" ] || [ -z "$choice" ]; then
-        set_psiphon_instance "$saved_instance"
-        return
-    fi
-    if ! [[ "$choice" =~ ^([1-9]|[1-9][0-9])$ ]] || ! psiphon_instance_exists "$choice"; then
-        error "Подключение с номером '${choice:-пусто}' не найдено."
-        set_psiphon_instance "$saved_instance"
+    select_menu choice "$PSIPHON_INSTANCE" show_psiphon_connections "${instances[@]}" || return
+    [[ "$choice" != 0 ]] || return 0
+    if ! psiphon_instance_exists "$choice"; then
+        error "Подключение с номером '$choice' не найдено."
         pause
-        return
+        return 1
     fi
-    set_psiphon_instance "$choice"
+    set_psiphon_instance "$choice" || return
     success "Выбрано подключение Psiphon №$PSIPHON_INSTANCE."
     sleep 1
 }
@@ -108,8 +109,7 @@ psiphon_menu() {
     local choice
 
     while true; do
-        show_psiphon_menu
-        read -r choice
+        select_menu choice 1 show_psiphon_menu || return
         case $choice in
             1) run_action "Установка Psiphon" \
                 "Будет скачан и запущен актуальный установщик из репозитория Chara-Freedom/vps-psiphon для подключения №$PSIPHON_INSTANCE. Он установит или обновит его Docker-контейнер, systemd-сервис, watchdog, SOCKS5 и Xray outbound для TCP-трафика. HTTP-прокси публиковаться не будет." \
@@ -147,7 +147,6 @@ psiphon_menu() {
             12) select_psiphon_connection ;;
             13) add_psiphon_connection ;;
             0) return ;;
-            *) warn "Неверный выбор."; sleep 1 ;;
         esac
     done
 }
