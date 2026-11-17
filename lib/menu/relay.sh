@@ -3,8 +3,9 @@
 show_relay_menu() {
     clear
     show_brand "Настройка релея"
-    menu_item 1 "Установка / обслуживание HAProxy"
-    menu_item 2 "Просмотр статистики"
+    menu_item 1 "Установка HAProxy"
+    menu_item 2 "Обслуживание HAProxy"
+    menu_item 3 "Просмотр статистики"
     menu_back_item
 }
 
@@ -31,6 +32,7 @@ show_relay_connections_menu() {
         esac
     done
     if [[ "$mode" != external ]]; then
+        menu_rows+=("")
         menu_item 1 "Добавить подключение"
         menu_danger_item 2 "Удалить подключение"
     fi
@@ -123,8 +125,9 @@ relay_menu() {
     while true; do
         select_menu choice 1 show_relay_menu || return
         case "$choice" in
-            1) relay_maintenance_menu ;;
-            2) relay_traffic_menu ;;
+            1) relay_installation_menu ;;
+            2) relay_maintenance_menu ;;
+            3) relay_traffic_menu ;;
             0) return ;;
         esac
     done

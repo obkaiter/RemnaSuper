@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
 
+show_relay_installation_menu() {
+    clear
+    show_brand "Установка HAProxy"
+    menu_item 1 "Установить HAProxy"
+    menu_item 2 "Запустить HAProxy"
+    menu_danger_item 3 "Остановить HAProxy"
+    menu_item 4 "Перезапустить HAProxy"
+    menu_item 5 "Установить сайт-заглушку"
+    menu_danger_item 6 "Удалить HAProxy и сборщик"
+    menu_back_item
+}
+
 show_relay_maintenance_menu() {
     clear
-    show_brand "Установка / обслуживание HAProxy"
-    menu_item 1 "Установить HAProxy"
-    menu_item 2 "Состояние HAProxy"
-    menu_item 3 "Запустить HAProxy"
-    menu_danger_item 4 "Остановить HAProxy"
-    menu_item 5 "Перезапустить HAProxy"
-    menu_item 7 "Просмотреть конфигурацию HAProxy"
-    menu_item 8 "Просмотреть логи HAProxy"
-    menu_item 9 "Проверить Stats Socket"
-    menu_item 10 "Просмотр статистики"
-    menu_item 11 "Установить сайт-заглушку"
-    menu_item 12 "Управление подключениями"
-    menu_item 13 "Создать резервную копию SQLite"
-    menu_item 14 "Выгрузить статистику за месяц в CSV"
-    menu_danger_item 15 "Удалить HAProxy и сборщик"
+    show_brand "Обслуживание HAProxy"
+    menu_item 1 "Состояние HAProxy"
+    menu_item 2 "Просмотреть конфигурацию HAProxy"
+    menu_item 3 "Просмотреть логи HAProxy"
+    menu_item 4 "Проверить Stats Socket"
+    menu_item 5 "Просмотр статистики"
+    menu_item 6 "Управление подключениями"
+    menu_item 7 "Создать резервную копию SQLite"
+    menu_item 8 "Выгрузить статистику за месяц в CSV"
     menu_back_item
 }
 
@@ -144,11 +150,26 @@ relay_install_site_action() {
     pause
 }
 
-relay_maintenance_menu() {
-    local choice month
+relay_view_haproxy_config() {
+    local status
+
+    check_command nano || { pause; return 1; }
+    if [[ ! -f "$RELAY_HAPROXY_CONFIG" || ! -r "$RELAY_HAPROXY_CONFIG" ]]; then
+        error "Не удалось прочитать конфигурацию HAProxy: $RELAY_HAPROXY_CONFIG."
+        pause
+        return 1
+    fi
+    nano --view -- "$RELAY_HAPROXY_CONFIG"
+    status=$?
+    pause
+    return "$status"
+}
+
+relay_installation_menu() {
+    local choice
 
     while true; do
-        select_menu choice 1 show_relay_maintenance_menu || return
+        select_menu choice 1 show_relay_installation_menu || return
         case "$choice" in
             1)
                 run_action "Установить HAProxy и сборщик" \
@@ -156,24 +177,35 @@ relay_maintenance_menu() {
                     install_relay_haproxy
                 pause
                 ;;
-            2) systemctl --no-pager status haproxy; pause ;;
-            3) run_action "Запуск HAProxy" "HAProxy запустится и займёт порты, указанные в его конфигурации." relay_haproxy_service start; pause ;;
-            4) run_action "Остановка HAProxy" "Текущие соединения прервутся. Релей будет недоступен до следующего запуска HAProxy." relay_haproxy_service stop; pause ;;
-            5) run_action "Перезапуск HAProxy" "HAProxy проверит конфигурацию и перезапустится. Текущие соединения прервутся, счётчики HAProxy сбросятся." relay_haproxy_service restart; pause ;;
-            7) cat -- "$RELAY_HAPROXY_CONFIG" | relay_page; pause ;;
-            8) journalctl -u haproxy.service -n 200 --no-pager | relay_page; pause ;;
-            9) relay_traffic_command probe; pause ;;
-            10) relay_traffic_menu ;;
-            11) relay_install_site_action ;;
-            12) relay_connections_menu ;;
-            13) run_action "Резервная копия SQLite" "Снимок базы будет сохранён в $RELAY_DIR/backups." relay_traffic_command backup; pause ;;
-            14)
+            2) run_action "Запуск HAProxy" "HAProxy запустится и займёт порты, указанные в его конфигурации." relay_haproxy_service start; pause ;;
+            3) run_action "Остановка HAProxy" "Текущие соединения прервутся. Релей будет недоступен до следующего запуска HAProxy." relay_haproxy_service stop; pause ;;
+            4) run_action "Перезапуск HAProxy" "HAProxy проверит конфигурацию и перезапустится. Текущие соединения прервутся, счётчики HAProxy сбросятся." relay_haproxy_service restart; pause ;;
+            5) relay_install_site_action ;;
+            6) relay_uninstall_menu ;;
+            0) return ;;
+        esac
+    done
+}
+
+relay_maintenance_menu() {
+    local choice month
+
+    while true; do
+        select_menu choice 1 show_relay_maintenance_menu || return
+        case "$choice" in
+            1) systemctl --no-pager status haproxy; pause ;;
+            2) relay_view_haproxy_config ;;
+            3) journalctl -u haproxy.service -n 200 --no-pager | relay_page; pause ;;
+            4) relay_traffic_command probe; pause ;;
+            5) relay_traffic_menu ;;
+            6) relay_connections_menu ;;
+            7) run_action "Резервная копия SQLite" "Снимок базы будет сохранён в $RELAY_DIR/backups." relay_traffic_command backup; pause ;;
+            8)
                 if relay_read_month month; then
                     run_action "Выгрузка статистики" "CSV за $month будет сохранён в $RELAY_DIR/exports." relay_traffic_command export --month "$month"
                     pause
                 fi
                 ;;
-            15) relay_uninstall_menu ;;
             0) return ;;
         esac
     done
