@@ -6,6 +6,7 @@ show_menu() {
 
     menu_section "Настройка"
     menu_item 1 "Первоначальная настройка"
+    menu_item 14 "Настройка релея"
 
     menu_section "Управление"
     menu_item 2 "Управление Psiphon"
@@ -34,6 +35,7 @@ main_menu() {
         select_menu choice 1 show_menu || return
         case $choice in
             1) initial_setup_menu ;;
+            14) relay_menu ;;
             2) psiphon_menu ;;
             3) tor_menu ;;
             4) warp_menu ;;
