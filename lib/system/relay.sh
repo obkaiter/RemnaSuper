@@ -12,9 +12,13 @@ relay_package_installed() {
     [[ "$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null)" == 'install ok installed' ]]
 }
 
-write_relay_config() {
-    local route domain backend
+run_relay_haproxy() {
+    local PATH="$PATH:/usr/sbin:/sbin"
 
+    check_command haproxy >&2 && haproxy "$@"
+}
+
+write_relay_config() {
     cat <<'EOF' || return 1
 # RemnaSuper HAProxy
 # ==================================================
@@ -34,6 +38,14 @@ global
     # Локальный сокет статистики
     stats socket /run/haproxy/admin.sock mode 660 level operator
     stats timeout 30s
+EOF
+
+    write_relay_defaults || return 1
+    write_relay_proxy_config "$@"
+}
+
+write_relay_defaults() {
+    cat <<'EOF'
 
 defaults
     log global
@@ -47,6 +59,13 @@ defaults
     timeout client 2h
     timeout server 2h
     timeout tunnel 2h
+EOF
+}
+
+write_relay_proxy_config() {
+    local route domain backend
+
+    cat <<'EOF' || return 1
 
 # ==================================================
 # FRONTEND: точка входа пользователей
@@ -103,34 +122,158 @@ EOF
     done
 }
 
-read_relay_connections() {
-    local -n connections_result="$1"
-    local routes
-
-    if ! command -v haproxy >/dev/null 2>&1; then
-        error "Сначала установите HAProxy в меню «Настройка релея»."
-        return 1
-    fi
-    if [[ -L "$RELAY_HAPROXY_CONFIG" ]] ||
-        ! grep -Fxq '# RemnaSuper HAProxy' "$RELAY_HAPROXY_CONFIG" 2>/dev/null; then
-        error "Сначала настройте HAProxy через пункт «Установить HAProxy»."
-        return 1
-    fi
-
-    routes="$(LC_ALL=C awk '
-        $1 == "use_backend" && $5 == "req.ssl_sni" && $6 == "-i" {
+read_generated_relay_routes() {
+    LC_ALL=C awk '
+        $1 == "frontend" { active = ($2 == "bitwire_entry") }
+        $1 ~ /^(backend|listen|defaults|global)$/ { active = 0 }
+        active && $1 == "use_backend" && $5 == "req.ssl_sni" && $6 == "-i" {
             if ($2 == "relay_site") print "site", $7
             else if ($2 == "exit_" $7) print "node", $7
         }
-    ' "$RELAY_HAPROXY_CONFIG")" || return 1
-    connections_result=()
-    if [[ -n "$routes" ]]; then
-        mapfile -t connections_result <<< "$routes"
+    '
+}
+
+relay_routing_section() {
+    local part="$1"
+
+    LC_ALL=C awk -v part="$part" '
+        $0 == "# RemnaSuper TCP routing" { found = 1 }
+        (part == "base" && !found) || (part == "routes" && found) { print }
+    '
+}
+
+write_relay_routing_section() {
+    local contstats="$1"
+    shift
+
+    printf '# RemnaSuper TCP routing\n' || return 1
+    write_relay_defaults || return 1
+    if (( contstats )); then
+        printf '    option contstats # RemnaSuper traffic\n' || return 1
     fi
-    if ! cmp -s <(relay_stats_config strip "$RELAY_HAPROXY_CONFIG") <(write_relay_config "${connections_result[@]}"); then
-        error "Файл $RELAY_HAPROXY_CONFIG изменён вручную. Восстановите конфигурацию RemnaSuper из резервной копии для управления подключениями."
+    write_relay_proxy_config "$@"
+}
+
+read_external_relay_routes() {
+    LC_ALL=C awk '
+        function collect_sni(first,    i, result) {
+            for (i = first; i <= NF; i++) {
+                if ($i !~ /^[[:alnum:]]([[:alnum:].-]*[[:alnum:]])?$/ || $i !~ /\./) return ""
+                result = result " " $i
+            }
+            return result
+        }
+        function record_routes(list, frontend, backend,    i, n, names, key) {
+            n = split(list, names, " ")
+            for (i = 1; i <= n; i++) {
+                key = tolower(names[i]) " " frontend " " backend
+                if (!seen[key]++) print "external", key
+            }
+        }
+        { sub(/[[:space:]]+#.*/, "") }
+        $1 ~ /^(frontend|listen|backend|defaults|global|peers|resolvers|userlist|cache|mailers|program|ring|log-forward|log-profile|traces|acme|crt-store|http-errors|fcgi-app)$/ {
+            section++
+            frontend = $1 ~ /^(frontend|listen)$/ && $2 ~ /^[[:alnum:]_.:-]+$/ ? $2 : ""
+        }
+        !frontend { next }
+        $1 == "acl" {
+            key = section SUBSEP $2
+            list = $3 ~ /^(req\.ssl_sni|req_ssl_sni|ssl_fc_sni)$/ ? collect_sni(4 + ($4 == "-i")) : ""
+            if (list == "") unsupported[key] = 1
+            else names[key] = names[key] list
+        }
+        $1 == "use_backend" && $2 ~ /^[[:alnum:]_.:-]+$/ && $3 == "if" {
+            if (NF == 4) {
+                count++
+                acl_keys[count] = section SUBSEP $4
+                frontend_names[count] = frontend
+                backend_names[count] = $2
+            } else if ($4 == "{" && $5 ~ /^(req\.ssl_sni|req_ssl_sni|ssl_fc_sni)$/ && $NF == "}") {
+                NF--
+                record_routes(collect_sni(6 + ($6 == "-i")), frontend, $2)
+            }
+        }
+        END {
+            for (i = 1; i <= count; i++) {
+                key = acl_keys[i]
+                if (!unsupported[key]) record_routes(names[key], frontend_names[i], backend_names[i])
+            }
+        }
+    ' "$RELAY_HAPROXY_CONFIG"
+}
+
+read_relay_connections() {
+    local connections_variable="$1" mode_variable="$2" routes='' generated scope=external
+    local -a controlled_routes=()
+
+    if [[ ! -f "$RELAY_HAPROXY_CONFIG" || ! -r "$RELAY_HAPROXY_CONFIG" ]]; then
+        error "Не удалось прочитать конфигурацию HAProxy: $RELAY_HAPROXY_CONFIG."
         return 1
     fi
+    if [[ ! -L "$RELAY_HAPROXY_CONFIG" ]]; then
+        if grep -Fxq '# RemnaSuper TCP routing' "$RELAY_HAPROXY_CONFIG"; then
+            scope=managed
+        elif grep -Fxq '# RemnaSuper HAProxy' "$RELAY_HAPROXY_CONFIG"; then
+            scope=legacy
+        elif ! grep -Eq '^[[:space:]]*(frontend|listen|backend)([[:space:]]|$)' "$RELAY_HAPROXY_CONFIG"; then
+            scope=empty
+        fi
+    fi
+    if [[ "$scope" == managed || "$scope" == legacy ]]; then
+        generated="$(relay_stats_config strip "$RELAY_HAPROXY_CONFIG")" || return 1
+        if [[ "$scope" == managed ]]; then
+            generated="$(relay_routing_section routes <<< "$generated")" || return 1
+        fi
+        routes="$(read_generated_relay_routes <<< "$generated")" || return 1
+        if [[ -n "$routes" ]]; then
+            mapfile -t controlled_routes <<< "$routes"
+        fi
+        if [[ "$scope" == managed ]]; then
+            cmp -s <(printf '%s\n' "$generated") <(write_relay_routing_section 0 "${controlled_routes[@]}") || scope=external
+        else
+            cmp -s <(printf '%s\n' "$generated") <(write_relay_config "${controlled_routes[@]}") || scope=external
+        fi
+    fi
+    if [[ "$scope" == external ]]; then
+        routes="$(read_external_relay_routes)" || return 1
+    fi
+    if [[ -n "$routes" ]]; then
+        mapfile -t "$connections_variable" <<< "$routes" || return 1
+    else
+        mapfile -t "$connections_variable" < /dev/null || return 1
+    fi
+    printf -v "$mode_variable" '%s' "$scope"
+}
+
+check_relay_routing_editable() {
+    local mode="$1" listeners
+
+    if [[ "$mode" == external ]]; then
+        error "Подключения из ручной конфигурации можно просматривать. Для изменения маршрутов в $RELAY_HAPROXY_CONFIG отредактируйте соответствующий frontend."
+        return 1
+    fi
+    if [[ "$mode" == empty ]]; then
+        check_command ss || return 1
+        listeners="$(ss -H -ltn 'sport = :443')" || return 1
+        if [[ -n "$listeners" ]]; then
+            error "TCP/443 уже занят. RemnaSuper не может добавить слушатель релея."
+            return 1
+        fi
+    fi
+}
+
+wait_relay_listener() {
+    local attempt listeners
+
+    for attempt in {1..8}; do
+        listeners="$(ss -H -4 -ltnp 'sport = :443')" || return 1
+        if [[ "$listeners" == *'"haproxy"'* ]]; then
+            return 0
+        fi
+        (( attempt == 8 )) || sleep 1
+    done
+    error "HAProxy не открыл TCP/443 после применения конфигурации."
+    return 1
 }
 
 cleanup_relay_config() {
@@ -172,7 +315,7 @@ commit_relay_config() (
         error "Не удалось изменить символическую ссылку $RELAY_HAPROXY_CONFIG."
         return 1
     fi
-    if (( ! offline )) && ! (cd / && haproxy -c -f "$candidate"); then
+    if (( ! offline )) && ! (cd / && run_relay_haproxy -c -f "$candidate"); then
         error "Конфигурация HAProxy не прошла проверку."
         return 1
     fi
@@ -186,7 +329,7 @@ commit_relay_config() (
     fi
     if systemctl is-active --quiet haproxy; then
         was_active=1
-        if [[ "$generator" == relay_stats_config && "$1" == add ]]; then
+        if [[ ( "$generator" == relay_stats_config && "$1" == add ) || "$generator" == write_relay_routing_config ]]; then
             previous_worker="$(relay_traffic_command probe --worker 2>/dev/null)" || previous_worker=''
         fi
     fi
@@ -204,24 +347,42 @@ commit_relay_config() (
     else
         systemctl start haproxy || return 1
     fi
-    if [[ "$generator" == relay_stats_config && "$1" == add ]]; then
+    if [[ ( "$generator" == relay_stats_config && "$1" == add ) || -n "$previous_worker" ]]; then
         wait_relay_stats_socket "$previous_worker" || return 1
     elif ! systemctl is-active --quiet haproxy; then
         error "HAProxy не запустился с новой конфигурацией."
         return 1
+    fi
+    if [[ "$generator" == write_relay_routing_config && "$1" == empty ]]; then
+        wait_relay_listener || return 1
     fi
     applied=1
     return 0
 )
 
 write_relay_routing_config() {
-    local managed_lines
+    local mode="$1" managed_lines contstats=0
+    shift
 
     managed_lines="$(relay_stats_config owned "$RELAY_HAPROXY_CONFIG")" || return 1
-    write_relay_config "$@" | relay_stats_config restore - '' 0 "$managed_lines"
+    case "$mode" in
+        legacy)
+            write_relay_config "$@" | relay_stats_config restore - '' 0 "$managed_lines"
+            return $?
+            ;;
+        managed) relay_routing_section base < "$RELAY_HAPROXY_CONFIG" || return 1 ;;
+        empty) cat -- "$RELAY_HAPROXY_CONFIG" && printf '\n' || return 1 ;;
+        *) return 1 ;;
+    esac
+    if [[ "$managed_lines" == *'option contstats # RemnaSuper traffic'* ]] ||
+        relay_stats_config contstats "$RELAY_HAPROXY_CONFIG"; then
+        contstats=1
+    fi
+    write_relay_routing_section "$contstats" "$@"
 }
 
 apply_relay_config() {
+    check_relay_routing_editable "$1" || return 1
     commit_relay_config 0 write_relay_routing_config "$@"
 }
 
@@ -248,10 +409,10 @@ install_relay_packages() {
 
 change_relay_connection() (
     local action="$1" domain="$2"
-    local route found=0
+    local route mode found=0
     local -a connections=() updated=()
 
-    lock_relay && check_command systemctl && read_relay_connections connections || return 1
+    lock_relay && check_command systemctl && read_relay_connections connections mode || return 1
     for route in "${connections[@]}"; do
         if [[ "${route#* }" == "$domain" ]]; then
             found=1
@@ -264,14 +425,14 @@ change_relay_connection() (
             error "Укажите корректный SNI, которого ещё нет в конфигурации."
             return 1
         fi
-        apply_relay_config "${connections[@]}" "node $domain" || return 1
+        apply_relay_config "$mode" "${connections[@]}" "node $domain" || return 1
         success "Добавлено подключение $domain → $domain:443."
     else
         if (( ! found )); then
             error "Подключение с SNI $domain уже отсутствует."
             return 1
         fi
-        apply_relay_config "${updated[@]}" || return 1
+        apply_relay_config "$mode" "${updated[@]}" || return 1
         success "Подключение с SNI $domain удалено."
     fi
 )

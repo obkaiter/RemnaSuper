@@ -20,12 +20,12 @@ install_relay_nginx() (
 )
 
 write_relay_site_config() {
-    local domain="$1" certificate_dir="$2"
+    local domain="$1" certificate_dir="$2" nginx_socket="$3"
 
     cat <<EOF
 # RemnaSuper nginx
 server {
-    listen unix:$RELAY_SITE_SOCKET ssl;
+    listen unix:$nginx_socket ssl;
     server_name $domain;
 
     ssl_certificate $certificate_dir/fullchain.pem;
@@ -36,6 +36,25 @@ server {
     index index.html;
 }
 EOF
+}
+
+relay_site_host_socket() {
+    local chroot socket_path="$RELAY_SITE_SOCKET"
+
+    chroot="$(LC_ALL=C awk '$1 == "chroot" { path = $2; gsub(/^["\047]|["\047]$/, "", path) } END { print path }' \
+        "$RELAY_HAPROXY_CONFIG")" || return 1
+    if [[ -n "$chroot" ]]; then
+        if [[ "$chroot" != /* ]] || ! chroot="$(realpath -e -- "$chroot")" || [[ ! -d "$chroot" ]]; then
+            error "Не удалось определить каталог chroot HAProxy." >&2
+            return 1
+        fi
+        socket_path="${chroot%/}$RELAY_SITE_SOCKET"
+    fi
+    if [[ ! "$socket_path" =~ ^/[A-Za-z0-9_./-]+$ ]] || (( ${#socket_path} > 107 )); then
+        error "Недопустимый путь локального сокета nginx: $socket_path." >&2
+        return 1
+    fi
+    printf '%s\n' "$socket_path"
 }
 
 configured_relay_site_certificate() {
@@ -53,21 +72,29 @@ configured_relay_site_certificate() {
     ' "$RELAY_NGINX_CONFIG"
 }
 
-replace_relay_site_certificate() {
-    local certificate_dir="$1" source="$2"
+configured_relay_site_socket() {
+    LC_ALL=C awk '
+        $1 == "listen" && $2 ~ /^unix:/ { socket = substr($2, 6); count++ }
+        END { if (count != 1) exit 1; print socket }
+    ' "$RELAY_NGINX_CONFIG"
+}
 
-    LC_ALL=C awk -v dir="$certificate_dir" '
-        $1 == "ssl_certificate" { print "    ssl_certificate " dir "/fullchain.pem;"; next }
-        $1 == "ssl_certificate_key" { print "    ssl_certificate_key " dir "/privkey.pem;"; next }
+rewrite_relay_site_config() {
+    local certificate_dir="$1" nginx_socket="$2" source="$3"
+
+    LC_ALL=C awk -v dir="$certificate_dir" -v socket="$nginx_socket" '
+        dir != "" && $1 == "ssl_certificate" { print "    ssl_certificate " dir "/fullchain.pem;"; next }
+        dir != "" && $1 == "ssl_certificate_key" { print "    ssl_certificate_key " dir "/privkey.pem;"; next }
+        $1 == "listen" && $2 ~ /^unix:/ { sub(/unix:[^[:space:];]+/, "unix:" socket) }
         { print }
     ' "$source"
 }
 
 check_relay_site() {
-    local domain="$1" attempt
+    local domain="$1" nginx_socket="$2" attempt
 
     for attempt in 1 2 3 4; do
-        if curl --noproxy '*' --unix-socket "$RELAY_SITE_SOCKET" --silent \
+        if curl --noproxy '*' --unix-socket "$nginx_socket" --silent \
             --connect-timeout 2 --max-time 5 --output /dev/null "https://$domain/"; then
             return 0
         fi
@@ -75,7 +102,7 @@ check_relay_site() {
             sleep 1
         fi
     done
-    error "Не удалось проверить HTTPS и сертификат $domain через $RELAY_SITE_SOCKET."
+    error "Не удалось проверить HTTPS и сертификат $domain через $nginx_socket."
     return 1
 }
 
@@ -103,12 +130,17 @@ cleanup_relay_site() {
 
 install_relay_site() (
     local domain="$1"
-    local route certificate_dir='' configured_certificate='' candidate='' nginx_backup='' nginx_source="$RELAY_NGINX_CONFIG"
+    local PATH="$PATH:/usr/sbin:/sbin"
+    local route mode initial_haproxy_config current_haproxy_config nginx_socket configured_socket=''
+    local certificate_dir='' configured_certificate='' candidate='' nginx_backup='' nginx_source="$RELAY_NGINX_CONFIG"
     local acme_dir="$RELAY_SITE_TLS_DIR/acme/$domain" letsencrypt_dir="$RELAY_LETSENCRYPT_DIR/$domain"
     local site_routed=0 config_changed=0 activation_attempted=0 nginx_was_active=0 applied=0
     local -a connections=()
 
-    lock_relay && check_command systemctl && read_relay_connections connections || return 1
+    lock_relay && check_command systemctl && read_relay_connections connections mode &&
+        check_relay_routing_editable "$mode" && run_relay_haproxy -v >/dev/null || return 1
+    initial_haproxy_config="$(sha256sum -- "$RELAY_HAPROXY_CONFIG")" || return 1
+    nginx_socket="$(relay_site_host_socket)" || return 1
     valid_relay_domain "$domain" || return 1
     for route in "${connections[@]}"; do
         case "$route" in
@@ -127,6 +159,10 @@ install_relay_site() (
         fi
         if ! configured_certificate="$(configured_relay_site_certificate)"; then
             error "Не удалось однозначно определить сертификат и ключ в $RELAY_NGINX_CONFIG."
+            return 1
+        fi
+        if ! configured_socket="$(configured_relay_site_socket)"; then
+            error "Не удалось однозначно определить локальный сокет в $RELAY_NGINX_CONFIG."
             return 1
         fi
     fi
@@ -159,6 +195,7 @@ install_relay_site() (
         ensure_relay_acme_certificate "$domain" "$acme_dir" || return 1
     fi
 
+    mkdir -p -- "${nginx_socket%/*}" || return 1
     if [[ -z "$configured_certificate" ]]; then
         if [[ ! -d "$RELAY_SITE_ROOT" ]] && ! install -d -m 755 -- "$RELAY_SITE_ROOT"; then
             error "Не удалось создать каталог сайта-заглушки $RELAY_SITE_ROOT."
@@ -172,23 +209,23 @@ install_relay_site() (
             install -m 644 /dev/null "$RELAY_SITE_ROOT/index.html" || return 1
         fi
         candidate="$(mktemp "${RELAY_NGINX_CONFIG}.XXXXXX")" || return 1
-        if ! write_relay_site_config "$domain" "$certificate_dir" > "$candidate" ||
+        if ! write_relay_site_config "$domain" "$certificate_dir" "$nginx_socket" > "$candidate" ||
             ! ln -- "$candidate" "$RELAY_NGINX_CONFIG"; then
             error "Не удалось записать конфигурацию сайта-заглушки."
             return 1
         fi
         config_changed=1
-    elif [[ -n "$certificate_dir" ]] &&
-        { (( config_changed )) || [[ "$configured_certificate" != "$certificate_dir/fullchain.pem"$'\n'"$certificate_dir/privkey.pem" ]]; }; then
+    elif [[ "$configured_socket" != "$nginx_socket" ]] || (( config_changed )) ||
+        [[ -n "$certificate_dir" && "$configured_certificate" != "$certificate_dir/fullchain.pem"$'\n'"$certificate_dir/privkey.pem" ]]; then
         if [[ -z "$nginx_backup" ]]; then
             candidate="$(mktemp "${RELAY_NGINX_CONFIG}.XXXXXX")" || return 1
             backup_config_file "$RELAY_NGINX_CONFIG" nginx_backup || return 1
         fi
-        if ! replace_relay_site_certificate "$certificate_dir" "$nginx_source" > "$candidate" ||
+        if ! rewrite_relay_site_config "$certificate_dir" "$nginx_socket" "$nginx_source" > "$candidate" ||
             ! chmod --reference="$nginx_source" "$candidate" ||
             ! chown --reference="$nginx_source" "$candidate" ||
             ! mv -T -- "$candidate" "$RELAY_NGINX_CONFIG"; then
-            error "Не удалось заменить пути сертификата в конфигурации сайта."
+            error "Не удалось обновить локальный сокет или пути сертификата в конфигурации сайта."
             return 1
         fi
         config_changed=1
@@ -202,12 +239,17 @@ install_relay_site() (
     else
         systemctl start nginx || return 1
     fi
-    check_relay_site "$domain" || return 1
+    check_relay_site "$domain" "$nginx_socket" || return 1
     systemctl enable nginx || return 1
+    current_haproxy_config="$(sha256sum -- "$RELAY_HAPROXY_CONFIG")" || return 1
+    if [[ "$initial_haproxy_config" != "$current_haproxy_config" ]]; then
+        error "Конфигурация HAProxy изменилась во время настройки nginx. Повторите установку заглушки."
+        return 1
+    fi
     if (( site_routed )); then
         systemctl start haproxy || return 1
     else
-        apply_relay_config "${connections[@]}" "site $domain" || return 1
+        apply_relay_config "$mode" "${connections[@]}" "site $domain" || return 1
     fi
     applied=1
     success "Сайт-заглушка настроен для https://$domain/."

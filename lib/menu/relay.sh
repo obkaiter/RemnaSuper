@@ -9,24 +9,31 @@ show_relay_menu() {
 }
 
 show_relay_connections_menu() {
-    local route domain
+    local mode="$1" route kind domain frontend backend
+    shift
 
     clear
     show_brand "Управление подключениями HAProxy"
-    menu_section "Настроенные подключения"
+    if [[ "$mode" == external ]]; then
+        menu_section "Правила SNI из ручной конфигурации · просмотр"
+    else
+        menu_section "Настроенные подключения"
+    fi
     if (( $# == 0 )); then
-        menu_rows+=("    Подключений пока нет")
+        menu_rows+=("    Прямых правил SNI не найдено")
     fi
     for route in "$@"; do
-        domain="${route#* }"
-        if [[ "$route" == 'site '* ]]; then
-            menu_item "$domain" "$domain → сайт-заглушка nginx"
-        else
-            menu_item "$domain" "$domain → $domain:443"
-        fi
+        read -r kind domain frontend backend <<< "$route"
+        case "$kind" in
+            external) menu_item "route:$route" "$domain → $backend ($frontend)" ;;
+            site) menu_item "$domain" "$domain → сайт-заглушка nginx" ;;
+            node) menu_item "$domain" "$domain → $domain:443" ;;
+        esac
     done
-    menu_item 1 "Добавить подключение"
-    menu_danger_item 2 "Удалить подключение"
+    if [[ "$mode" != external ]]; then
+        menu_item 1 "Добавить подключение"
+        menu_danger_item 2 "Удалить подключение"
+    fi
     menu_back_item
 }
 
@@ -62,17 +69,17 @@ read_relay_domain() {
 }
 
 relay_connections_menu() {
-    local choice domain route
+    local choice domain route mode frontend backend
     local -a connections=()
 
     while true; do
-        read_relay_connections connections || { pause; return; }
-        select_menu choice 1 show_relay_connections_menu "${connections[@]}" || return
+        read_relay_connections connections mode || { pause; return; }
+        select_menu choice 1 show_relay_connections_menu "$mode" "${connections[@]}" || return
         case "$choice" in
             1)
                 read_relay_domain domain "Введите SNI выходной ноды" || continue
                 run_action "Добавить подключение HAProxy" \
-                    "SNI $domain будет направлен на $domain:443. DNS домена должен указывать на выходную ноду. Скрипт проверит конфигурацию, сохранит резервную копию и перечитает конфигурацию HAProxy через reload." \
+                    "SNI $domain будет направлен на $domain:443. DNS домена должен указывать на выходную ноду. При создании первого маршрута в штатном конфиге HAProxy будет добавлен IPv4-слушатель TCP/443. Скрипт проверит конфигурацию, сохранит резервную копию и перечитает конфигурацию HAProxy через reload." \
                     change_relay_connection add "$domain"
                 pause
                 ;;
@@ -90,6 +97,12 @@ relay_connections_menu() {
                 pause
                 ;;
             0) return ;;
+            'route:external '*)
+                read -r domain frontend backend <<< "${choice#route:external }"
+                info "SNI: $domain"
+                info "Маршрут: $frontend → $backend"
+                pause
+                ;;
             *)
                 info "SNI: $choice"
                 for route in "${connections[@]}"; do

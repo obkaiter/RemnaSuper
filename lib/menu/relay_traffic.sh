@@ -8,7 +8,6 @@ show_relay_maintenance_menu() {
     menu_item 3 "Запустить HAProxy"
     menu_danger_item 4 "Остановить HAProxy"
     menu_item 5 "Перезапустить HAProxy"
-    menu_item 6 "Проверить конфигурацию HAProxy"
     menu_item 7 "Просмотреть конфигурацию HAProxy"
     menu_item 8 "Просмотреть логи HAProxy"
     menu_item 9 "Проверить Stats Socket"
@@ -138,10 +137,9 @@ relay_uninstall_menu() {
 relay_install_site_action() {
     local domain
 
-    check_command haproxy || { pause; return; }
     read_relay_domain domain "Введите домен сайта-заглушки" || return
     run_action "Установить сайт-заглушку" \
-        "Скрипт установит недостающие пакеты через apt-get и настроит HTTPS-сайт для $domain в $RELAY_SITE_ROOT. Если действующего сертификата нет, скрипт скачает и запустит acme.sh из официального репозитория GitHub и запросит сертификат Let's Encrypt. Для выпуска и продления nginx будет отдавать проверочные файлы на TCP/80, а cron будет запускать продление. DNS домена должен указывать на релей, TCP/80 должен быть доступен из интернета. Скрипт включит автозапуск nginx и при необходимости применит SNI-маршрут через reload HAProxy с резервной копией конфига. При восстановлении сайта с повреждённым сертификатом HTTPS может временно отключиться." \
+        "Скрипт установит недостающие пакеты через apt-get и настроит HTTPS-сайт для $domain в $RELAY_SITE_ROOT. Если действующего сертификата нет, скрипт скачает и запустит acme.sh из официального репозитория GitHub и запросит сертификат Let's Encrypt. Для выпуска и продления nginx будет отдавать проверочные файлы на TCP/80, а cron будет запускать продление. DNS домена должен указывать на релей, TCP/80 должен быть доступен из интернета. Скрипт включит автозапуск nginx и применит SNI-маршрут через reload HAProxy с резервной копией конфига. При создании первого маршрута в штатном конфиге HAProxy будет добавлен IPv4-слушатель TCP/443. При восстановлении сайта с повреждённым сертификатом HTTPS может временно отключиться." \
         install_relay_site "$domain"
     pause
 }
@@ -162,7 +160,6 @@ relay_maintenance_menu() {
             3) run_action "Запуск HAProxy" "HAProxy запустится и займёт порты, указанные в его конфигурации." relay_haproxy_service start; pause ;;
             4) run_action "Остановка HAProxy" "Текущие соединения прервутся. Релей будет недоступен до следующего запуска HAProxy." relay_haproxy_service stop; pause ;;
             5) run_action "Перезапуск HAProxy" "HAProxy проверит конфигурацию и перезапустится. Текущие соединения прервутся, счётчики HAProxy сбросятся." relay_haproxy_service restart; pause ;;
-            6) check_relay_haproxy_config; pause ;;
             7) cat -- "$RELAY_HAPROXY_CONFIG" | relay_page; pause ;;
             8) journalctl -u haproxy.service -n 200 --no-pager | relay_page; pause ;;
             9) relay_traffic_command probe; pause ;;

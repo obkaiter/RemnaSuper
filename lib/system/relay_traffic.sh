@@ -9,7 +9,7 @@ relay_traffic_command() {
 }
 
 check_relay_haproxy_config() {
-    check_command haproxy && (cd / && haproxy -c -f "$RELAY_HAPROXY_CONFIG")
+    (cd / && run_relay_haproxy -c -f "$RELAY_HAPROXY_CONFIG")
 }
 
 prepare_relay_socket_directory() {
@@ -165,6 +165,7 @@ register_relay_collector() (
 
 install_relay_haproxy() (
     local ID='' ID_LIKE='' socket_path contstats=0
+    local PATH="$PATH:/usr/sbin:/sbin"
 
     if [[ ! -r /etc/os-release ]]; then
         error "Не удалось определить операционную систему."
@@ -181,8 +182,7 @@ install_relay_haproxy() (
         return 1
     fi
     install_relay_packages haproxy python3 tzdata less || return 1
-    check_command haproxy || return 1
-    haproxy -v || return 1
+    run_relay_haproxy -v || return 1
     if ! /usr/bin/python3 -B -c 'import sqlite3; from zoneinfo import ZoneInfo; ZoneInfo("Europe/Moscow")'; then
         error "Сборщику нужны Python 3.9 или новее, SQLite и tzdata."
         return 1
