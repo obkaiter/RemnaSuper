@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -o pipefail
 
+if ! pwd -P >/dev/null 2>&1; then
+    cd / || exit 1
+fi
+
 resolve_app_dir() {
     local source="${BASH_SOURCE[0]}"
     local dir

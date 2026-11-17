@@ -12,6 +12,8 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+cd /
+
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
         printf "[x] Команда '%s' не найдена.\n" "$1"

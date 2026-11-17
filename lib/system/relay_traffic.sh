@@ -163,10 +163,33 @@ register_relay_collector() (
     trap - EXIT
 )
 
+ensure_relay_haproxy_package() (
+    local -a options=(-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+
+    if [[ ! -e "$RELAY_HAPROXY_CONFIG" && ! -L "$RELAY_HAPROXY_CONFIG" ]]; then
+        check_command apt-get || return 1
+        cd / || return 1
+        step "Установка HAProxy и восстановление штатной конфигурации из пакета..."
+        if ! apt-get "${options[@]}" update ||
+            ! apt-get "${options[@]}" -o Dpkg::Options::=--force-confmiss \
+                install -y --reinstall --no-install-recommends haproxy; then
+            error "Не удалось установить HAProxy с восстановлением конфигурации."
+            return 1
+        fi
+    else
+        install_relay_packages haproxy || return 1
+    fi
+    if [[ ! -f "$RELAY_HAPROXY_CONFIG" || ! -r "$RELAY_HAPROXY_CONFIG" ]]; then
+        error "Конфигурация HAProxy отсутствует или недоступна для чтения: $RELAY_HAPROXY_CONFIG."
+        return 1
+    fi
+)
+
 install_relay_haproxy() (
     local ID='' ID_LIKE='' socket_path contstats=0
     local PATH="$PATH:/usr/sbin:/sbin"
 
+    cd / || return 1
     if [[ ! -r /etc/os-release ]]; then
         error "Не удалось определить операционную систему."
         return 1
@@ -181,7 +204,7 @@ install_relay_haproxy() (
         error "Путь $RELAY_SERVICE_LINK занят другой службой."
         return 1
     fi
-    install_relay_packages haproxy python3 tzdata less || return 1
+    ensure_relay_haproxy_package && install_relay_packages python3 tzdata less || return 1
     run_relay_haproxy -v || return 1
     if ! /usr/bin/python3 -B -c 'import sqlite3; from zoneinfo import ZoneInfo; ZoneInfo("Europe/Moscow")'; then
         error "Сборщику нужны Python 3.9 или новее, SQLite и tzdata."

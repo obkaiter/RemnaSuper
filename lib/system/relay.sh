@@ -386,7 +386,7 @@ apply_relay_config() {
     commit_relay_config 0 write_relay_routing_config "$@"
 }
 
-install_relay_packages() {
+install_relay_packages() (
     local package
     local -a missing=() options=(-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
 
@@ -398,6 +398,7 @@ install_relay_packages() {
     done
     (( ${#missing[@]} )) || return 0
     check_command apt-get || return 1
+    cd / || return 1
     step "Установка пакетов: ${missing[*]}."
     if apt-get "${options[@]}" update &&
         apt-get "${options[@]}" install -y --no-install-recommends "${missing[@]}"; then
@@ -405,7 +406,7 @@ install_relay_packages() {
     fi
     error "Не удалось установить пакеты: ${missing[*]}."
     return 1
-}
+)
 
 change_relay_connection() (
     local action="$1" domain="$2"

@@ -152,7 +152,7 @@ relay_maintenance_menu() {
         case "$choice" in
             1)
                 run_action "Установить HAProxy и сборщик" \
-                    "При необходимости apt-get скачает и установит HAProxy, Python 3, tzdata и less. Если файлов сборщика нет, скрипт загрузит их из репозитория RemnaSuper. При изменении haproxy.cfg будет создана резервная копия. Скрипт настроит локальный Unix-сокет, предложит option contstats, перечитает HAProxy через reload и включит HAProxy и $RELAY_SERVICE в автозапуск." \
+                    "При необходимости apt-get скачает и установит HAProxy, Python 3, tzdata и less. Если haproxy.cfg отсутствует, apt-get восстановит штатный файл из пакета HAProxy. Если файлов сборщика нет, скрипт загрузит их из репозитория RemnaSuper. При изменении haproxy.cfg будет создана резервная копия. Скрипт настроит локальный Unix-сокет, предложит option contstats, перечитает HAProxy через reload и включит HAProxy и $RELAY_SERVICE в автозапуск." \
                     install_relay_haproxy
                 pause
                 ;;

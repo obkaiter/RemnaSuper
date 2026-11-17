@@ -87,7 +87,8 @@ perform_update() {
     shift
 
     local tmp_dir archive src_root src_dir
-    tmp_dir="$(mktemp -d)"
+    cd / || return 1
+    tmp_dir="$(mktemp -d)" || return 1
     archive="$tmp_dir/remnasuper.tar.gz"
     src_root="$tmp_dir/source"
 
