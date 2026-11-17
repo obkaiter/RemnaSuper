@@ -1,0 +1,30 @@
+[Unit]
+Description=RemnaSuper HAProxy Traffic Collector
+After=haproxy.service
+Wants=haproxy.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/bin/python3 -B /opt/RemnaSuper/haproxy/collector/collector.py daemon
+Restart=always
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+ReadWritePaths=/opt/RemnaSuper/haproxy/database /opt/RemnaSuper/haproxy/logs
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target

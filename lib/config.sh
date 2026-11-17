@@ -63,7 +63,9 @@ WARP_NATIVE_INSTALLER_URL="https://raw.githubusercontent.com/${WARP_NATIVE_REPO}
 WARP_NATIVE_UNINSTALLER_URL="https://raw.githubusercontent.com/${WARP_NATIVE_REPO}/${WARP_NATIVE_BRANCH}/uninstall.sh"
 
 RELAY_HAPROXY_CONFIG="/etc/haproxy/haproxy.cfg"
-RELAY_LOCK_FILE="/run/remnasuper-relay.lock"
+RELAY_DIR="$INSTALL_DIR/haproxy"
+RELAY_SERVICE="haproxy-traffic.service"
+RELAY_SERVICE_LINK="/etc/systemd/system/$RELAY_SERVICE"
 RELAY_NGINX_CONFIG="/etc/nginx/conf.d/remnasuper-relay.conf"
 RELAY_NGINX_DEFAULT="/etc/nginx/sites-enabled/default"
 RELAY_SITE_ROOT="/var/www/remnasuper-relay"

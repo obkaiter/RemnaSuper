@@ -49,6 +49,7 @@ install_from_dir() {
     fi
 
     if [ ! -f "$src_dir/RemnaSuper" ] || [ ! -f "$src_dir/VERSION" ] || [ ! -d "$src_dir/lib" ] ||
+       [ ! -f "$src_dir/lib/system/relay_deploy.sh" ] ||
        [ ! -f "$src_dir/lib/system/network_diagnostics/agent.py" ] ||
        [ ! -f "$src_dir/lib/system/network_diagnostics/safety.py" ] ||
        [ ! -f "$src_dir/lib/system/network_diagnostics/protocol.py" ] ||
@@ -65,7 +66,8 @@ install_from_dir() {
     fi
 
     prepare_install_dir || return 1
-    rm -rf "$INSTALL_DIR/lib"
+    (source "$src_dir/lib/system/relay_deploy.sh" && sync_relay_payload "$src_dir/haproxy") || return 1
+    rm -rf "${INSTALL_DIR:?}/lib"
     cp -a "$src_dir/lib" "$INSTALL_DIR/"
     install -m 755 "$src_dir/RemnaSuper" "$INSTALL_DIR/RemnaSuper"
     install -m 644 "$src_dir/VERSION" "$INSTALL_DIR/VERSION"

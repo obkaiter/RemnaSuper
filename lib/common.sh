@@ -28,18 +28,19 @@ check_command() {
 backup_config_file() {
     local source_file="$1"
     local output_variable="$2"
+    local backup_dir="${3:-$BACKUP_DIR}"
     local file_name timestamp backup_path
 
     if [ ! -f "$source_file" ]; then
         error "Файл конфигурации не найден: $source_file"
         return 1
     fi
-    if [ -L "$BACKUP_DIR" ]; then
-        error "Каталог резервных копий не должен быть символической ссылкой: $BACKUP_DIR"
+    if [ -L "$backup_dir" ]; then
+        error "Каталог резервных копий не должен быть символической ссылкой: $backup_dir"
         return 1
     fi
-    if ! mkdir -p -- "$BACKUP_DIR" || ! chmod 700 -- "$BACKUP_DIR"; then
-        error "Не удалось подготовить каталог резервных копий: $BACKUP_DIR"
+    if ! mkdir -p -- "$backup_dir" || ! chmod 700 -- "$backup_dir"; then
+        error "Не удалось подготовить каталог резервных копий: $backup_dir"
         return 1
     fi
 
@@ -48,7 +49,7 @@ backup_config_file() {
         error "Не удалось получить время для имени резервной копии $source_file."
         return 1
     }
-    backup_path="$(mktemp "$BACKUP_DIR/${file_name}.bak.${timestamp}.XXXXXX")" || {
+    backup_path="$(mktemp "$backup_dir/${file_name}.bak.${timestamp}.XXXXXX")" || {
         error "Не удалось создать резервную копию $source_file."
         return 1
     }
@@ -58,7 +59,9 @@ backup_config_file() {
         return 1
     fi
 
-    printf -v "$output_variable" '%s' "$backup_path"
+    if [[ -n "$output_variable" ]]; then
+        printf -v "$output_variable" '%s' "$backup_path"
+    fi
     info "Резервная копия $source_file: $backup_path"
 }
 

@@ -3,9 +3,8 @@
 show_relay_menu() {
     clear
     show_brand "Настройка релея"
-    menu_item 1 "Установить HAProxy"
-    menu_item 2 "Просмотр подключений"
-    menu_item 3 "Установить сайт-заглушку"
+    menu_item 1 "Установка / обслуживание HAProxy"
+    menu_item 2 "Просмотр статистики"
     menu_back_item
 }
 
@@ -13,7 +12,7 @@ show_relay_connections_menu() {
     local route domain
 
     clear
-    show_brand "Просмотр подключений HAProxy"
+    show_brand "Управление подключениями HAProxy"
     menu_section "Настроенные подключения"
     if (( $# == 0 )); then
         menu_rows+=("    Подключений пока нет")
@@ -73,7 +72,7 @@ relay_connections_menu() {
             1)
                 read_relay_domain domain "Введите SNI выходной ноды" || continue
                 run_action "Добавить подключение HAProxy" \
-                    "SNI $domain будет направлен на $domain:443. DNS домена должен указывать на выходную ноду. Скрипт проверит новую конфигурацию HAProxy, сохранит резервную копию и перезапустит HAProxy. Текущие подключения прервутся." \
+                    "SNI $domain будет направлен на $domain:443. DNS домена должен указывать на выходную ноду. Скрипт проверит конфигурацию, сохранит резервную копию и перечитает конфигурацию HAProxy через reload." \
                     change_relay_connection add "$domain"
                 pause
                 ;;
@@ -86,7 +85,7 @@ relay_connections_menu() {
                 select_menu domain 0 show_relay_delete_menu "${connections[@]}" || continue
                 [[ "$domain" != 0 ]] || continue
                 run_action "Удалить подключение HAProxy" \
-                    "Маршрут SNI $domain будет удалён из конфигурации HAProxy. Скрипт проверит конфигурацию, сохранит резервную копию и перезапустит HAProxy. Текущие подключения прервутся." \
+                    "Маршрут SNI $domain будет удалён из конфигурации HAProxy. Скрипт проверит конфигурацию, сохранит резервную копию и перечитает конфигурацию через reload." \
                     change_relay_connection remove "$domain"
                 pause
                 ;;
@@ -106,27 +105,13 @@ relay_connections_menu() {
 }
 
 relay_menu() {
-    local choice domain
-    local -a connections=()
+    local choice
 
     while true; do
         select_menu choice 1 show_relay_menu || return
         case "$choice" in
-            1)
-                run_action "Установить HAProxy" \
-                    "При необходимости apt-get скачает и установит HAProxy. При первой настройке скрипт сохранит резервную копию $RELAY_HAPROXY_CONFIG и заменит файл базовым TCP-конфигом. HAProxy будет включён в автозапуск и займёт TCP-порт 443 на всех адресах IPv4. При перезапуске текущие подключения прервутся." \
-                    install_relay_haproxy
-                pause
-                ;;
-            2) relay_connections_menu ;;
-            3)
-                read_relay_connections connections || { pause; continue; }
-                read_relay_domain domain "Введите домен сайта-заглушки" || continue
-                run_action "Установить сайт-заглушку" \
-                    "При необходимости apt-get установит nginx без стандартного сайта, если тот ещё не настроен. Скрипт добавит локальный HTTPS-сайт для $domain с каталогом $RELAY_SITE_ROOT и включит автозапуск nginx. Если сертификата Let's Encrypt для домена ещё нет, будет создан самоподписанный. Скрипт добавит маршрут в HAProxy, сохранит резервную копию и перезапустит HAProxy. Текущие подключения прервутся." \
-                    install_relay_site "$domain"
-                pause
-                ;;
+            1) relay_maintenance_menu ;;
+            2) relay_traffic_menu ;;
             0) return ;;
         esac
     done

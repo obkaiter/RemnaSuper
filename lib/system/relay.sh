@@ -8,31 +8,8 @@ valid_relay_domain() {
     [[ ${#domain} -le 253 && "$domain" =~ ^($label\.)+$label$ && "${domain##*.}" =~ [a-z] ]]
 }
 
-lock_relay() {
-    local lock_fd
-
-    check_command flock || return 1
-    if ! { exec {lock_fd}>"$RELAY_LOCK_FILE"; } || ! flock -n "$lock_fd"; then
-        error "Не удалось заблокировать настройки релея. Возможно, их меняет другой процесс."
-        return 1
-    fi
-}
-
 relay_package_installed() {
     [[ "$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null)" == 'install ok installed' ]]
-}
-
-install_relay_package() {
-    local package="$1"
-    local -a options=(-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
-
-    check_command apt-get || return 1
-    step "Установка пакета $package..."
-    if ! apt-get "${options[@]}" update ||
-        ! apt-get "${options[@]}" install -y --no-install-recommends "$package"; then
-        error "Не удалось установить пакет $package."
-        return 1
-    fi
 }
 
 write_relay_config() {
@@ -150,7 +127,7 @@ read_relay_connections() {
     if [[ -n "$routes" ]]; then
         mapfile -t connections_result <<< "$routes"
     fi
-    if ! cmp -s "$RELAY_HAPROXY_CONFIG" <(write_relay_config "${connections_result[@]}"); then
+    if ! cmp -s <(relay_stats_config strip "$RELAY_HAPROXY_CONFIG") <(write_relay_config "${connections_result[@]}"); then
         error "Файл $RELAY_HAPROXY_CONFIG изменён вручную. Восстановите конфигурацию RemnaSuper из резервной копии для управления подключениями."
         return 1
     fi
@@ -168,28 +145,39 @@ cleanup_relay_config() {
             error "Не удалось удалить новую конфигурацию HAProxy."
             return
         fi
-        if (( was_active )); then
-            systemctl restart haproxy || error "Не удалось запустить HAProxy с прежней конфигурацией."
-        else
+        if (( was_active && ! offline )); then
+            systemctl reload haproxy || error "Не удалось перечитать прежнюю конфигурацию HAProxy."
+        elif (( ! offline )); then
             systemctl stop haproxy || error "Не удалось остановить HAProxy."
         fi
     fi
     rm -f -- "$candidate"
 }
 
-apply_relay_config() (
-    local candidate backup_file='' was_active=0 applied=0
+commit_relay_config() (
+    local offline="$1" generator="$2"
+    shift 2
+    local candidate backup_file='' was_active=0 applied=0 previous_worker=''
 
+    prepare_relay_directories || return 1
     candidate="$(mktemp "${RELAY_HAPROXY_CONFIG}.XXXXXX")" || return 1
     trap cleanup_relay_config EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    if ! write_relay_config "$@" > "$candidate" || ! haproxy -c -f "$candidate"; then
+    "$generator" "$@" > "$candidate" || return 1
+    if cmp -s "$candidate" "$RELAY_HAPROXY_CONFIG"; then
+        return 0
+    fi
+    if [[ -L "$RELAY_HAPROXY_CONFIG" ]]; then
+        error "Не удалось изменить символическую ссылку $RELAY_HAPROXY_CONFIG."
+        return 1
+    fi
+    if (( ! offline )) && ! (cd / && haproxy -c -f "$candidate"); then
         error "Конфигурация HAProxy не прошла проверку."
         return 1
     fi
     if [[ -e "$RELAY_HAPROXY_CONFIG" ]]; then
-        if ! backup_config_file "$RELAY_HAPROXY_CONFIG" backup_file ||
+        if ! backup_config_file "$RELAY_HAPROXY_CONFIG" backup_file "$RELAY_DIR/backups" ||
             ! chmod --reference="$RELAY_HAPROXY_CONFIG" "$candidate" ||
             ! chown --reference="$RELAY_HAPROXY_CONFIG" "$candidate"; then
             error "Не удалось подготовить конфигурацию HAProxy к замене."
@@ -198,44 +186,65 @@ apply_relay_config() (
     fi
     if systemctl is-active --quiet haproxy; then
         was_active=1
+        if [[ "$generator" == relay_stats_config && "$1" == add ]]; then
+            previous_worker="$(relay_traffic_command probe --worker 2>/dev/null)" || previous_worker=''
+        fi
     fi
     if ! mv -T -- "$candidate" "$RELAY_HAPROXY_CONFIG"; then
         error "Не удалось заменить $RELAY_HAPROXY_CONFIG."
         return 1
     fi
 
-    if systemctl restart haproxy && systemctl is-active --quiet haproxy; then
+    if (( offline )); then
         applied=1
         return 0
     fi
-
-    error "HAProxy не запустился с новой конфигурацией. Проверьте порт 443 и журнал службы HAProxy."
-    return 1
-)
-
-install_relay_haproxy() (
-    lock_relay && check_command dpkg-query && check_command systemctl || return 1
-    if [[ -L "$RELAY_HAPROXY_CONFIG" ]]; then
-        error "Файл $RELAY_HAPROXY_CONFIG является символической ссылкой."
-        return 1
-    fi
-    if ! relay_package_installed haproxy; then
-        install_relay_package haproxy || return 1
-    fi
-    check_command haproxy || return 1
-    if grep -Fxq '# RemnaSuper HAProxy' "$RELAY_HAPROXY_CONFIG" 2>/dev/null; then
-        if ! systemctl is-active --quiet haproxy; then
-            haproxy -c -f "$RELAY_HAPROXY_CONFIG" && systemctl start haproxy || return 1
-        fi
+    if (( was_active )); then
+        systemctl reload haproxy || return 1
     else
-        apply_relay_config || return 1
+        systemctl start haproxy || return 1
     fi
-    if ! systemctl enable haproxy; then
-        error "Не удалось включить автозапуск HAProxy."
+    if [[ "$generator" == relay_stats_config && "$1" == add ]]; then
+        wait_relay_stats_socket "$previous_worker" || return 1
+    elif ! systemctl is-active --quiet haproxy; then
+        error "HAProxy не запустился с новой конфигурацией."
         return 1
     fi
-    success "HAProxy запущен. Конфигурация сохранена в $RELAY_HAPROXY_CONFIG."
+    applied=1
+    return 0
 )
+
+write_relay_routing_config() {
+    local managed_lines
+
+    managed_lines="$(relay_stats_config owned "$RELAY_HAPROXY_CONFIG")" || return 1
+    write_relay_config "$@" | relay_stats_config restore - '' 0 "$managed_lines"
+}
+
+apply_relay_config() {
+    commit_relay_config 0 write_relay_routing_config "$@"
+}
+
+install_relay_packages() {
+    local package
+    local -a missing=() options=(-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+
+    check_command dpkg-query || return 1
+    for package in "$@"; do
+        if ! relay_package_installed "$package"; then
+            missing+=("$package")
+        fi
+    done
+    (( ${#missing[@]} )) || return 0
+    check_command apt-get || return 1
+    step "Установка пакетов: ${missing[*]}."
+    if apt-get "${options[@]}" update &&
+        apt-get "${options[@]}" install -y --no-install-recommends "${missing[@]}"; then
+        return 0
+    fi
+    error "Не удалось установить пакеты: ${missing[*]}."
+    return 1
+}
 
 change_relay_connection() (
     local action="$1" domain="$2"

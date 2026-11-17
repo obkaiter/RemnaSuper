@@ -73,6 +73,7 @@ tar -xzf "$archive" -C "$src_root"
 src_dir="$(find "$src_root" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 
 if [ -z "$src_dir" ] || [ ! -f "$src_dir/RemnaSuper" ] || [ ! -d "$src_dir/lib" ] || [ ! -f "$src_dir/VERSION" ] ||
+   [ ! -f "$src_dir/lib/system/relay_deploy.sh" ] ||
    [ ! -f "$src_dir/lib/system/network_diagnostics/agent.py" ] ||
    [ ! -f "$src_dir/lib/system/network_diagnostics/safety.py" ] ||
    [ ! -f "$src_dir/lib/system/network_diagnostics/protocol.py" ] ||
@@ -82,6 +83,12 @@ if [ -z "$src_dir" ] || [ ! -f "$src_dir/RemnaSuper" ] || [ ! -d "$src_dir/lib" 
     exit 1
 fi
 
+source "$src_dir/lib/config.sh"
+source "$src_dir/lib/ui.sh"
+source "$src_dir/lib/common.sh"
+source "$src_dir/lib/system/relay_deploy.sh"
+validate_relay_payload "$src_dir/haproxy"
+
 if [ -d /var/lib/remnasuper/network-diagnostics/sessions ] &&
    [ -n "$(find /var/lib/remnasuper/network-diagnostics/sessions -name journal.json -print -quit)" ]; then
     printf "[x] Есть активная или неочищенная сессия сетевой диагностики. Установка остановлена до её завершения.\n"
@@ -90,7 +97,8 @@ fi
 
 printf "[>] Установка в %s...\n" "$INSTALL_DIR"
 prepare_install_dir
-rm -rf "$INSTALL_DIR/lib"
+sync_relay_payload "$src_dir/haproxy"
+rm -rf "${INSTALL_DIR:?}/lib"
 cp -a "$src_dir/lib" "$INSTALL_DIR/"
 install -m 755 "$src_dir/RemnaSuper" "$INSTALL_DIR/RemnaSuper"
 install -m 644 "$src_dir/VERSION" "$INSTALL_DIR/VERSION"

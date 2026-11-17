@@ -15,7 +15,7 @@ install_relay_nginx() (
         fi
         trap 'rm -f -- "$RELAY_NGINX_DEFAULT"' EXIT
     fi
-    install_relay_package nginx || return 1
+    install_relay_packages nginx || return 1
     trap - EXIT
 )
 
