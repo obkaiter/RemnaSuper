@@ -31,6 +31,7 @@ server {
     ssl_certificate $certificate_dir/fullchain.pem;
     ssl_certificate_key $certificate_dir/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_tickets off;
 
     root $RELAY_SITE_ROOT;
     index index.html;
