@@ -180,28 +180,33 @@ relay_external_config() {
         function route_rule(line, backend, fetch, names) {
             return names == "" ? "" : indents[line] "use_backend " backend " if { " fetch names " }"
         }
-        function emit_route(    key, i, list) {
+        function allowlist_line(    key, i, list, line) {
             key = entry_section SUBSEP accept_acl
-            if (accept_acl != "" && accept_acl == reject_acl && acl_counts[key] && !unsupported[key]) {
-                for (i = 1; i <= acl_counts[key]; i++) list = list acl_lists[key, i]
-                if (index(tolower(list) " ", " " domain " ") == 0) {
-                    printf "    acl %s req.ssl_sni -i %s\n", accept_acl, domain
-                }
+            if (accept_acl == "" || accept_acl != reject_acl || !acl_counts[key] || unsupported[key]) {
+                key = entry_section SUBSEP "relay_sni"
+                if (!acl_counts[key] || unsupported[key]) return 0
+                accept_acl = "relay_sni"
             }
-            printf "    use_backend %s if { req.ssl_sni -i %s }\n", backend, domain
+            for (i = 1; i <= acl_counts[key]; i++) {
+                if (acl_fetches[key, i] !~ /^(req\.ssl_sni|req_ssl_sni)( -i)?$/) return 0
+                list = list acl_lists[key, i]
+                if (i == 1 || acl_lines[key, i] == line + 1) line = acl_lines[key, i]
+            }
+            return index(tolower(list) " ", " " domain " ") == 0 ? line : 0
         }
         {
             if (action != "list") raw[FNR] = $0
             sub(/[[:space:]]+#.*/, "")
+            direct_sni = 0
         }
         $1 ~ /^(frontend|listen|backend|defaults|global|peers|resolvers|userlist|cache|mailers|program|ring|log-forward|log-profile|traces|acme|crt-store|http-errors|fcgi-app)$/ {
-            if (entry && action == "add") entry_end = FNR - 1
             section++
             entry = ($1 == "frontend" && $2 == target_frontend)
-            if (entry) { entry_count++; entry_section = section }
+            if (entry) { entry_count++; entry_section = section; entry_end = FNR }
             frontend = $1 ~ /^(frontend|listen)$/ && $2 ~ /^[[:alnum:]_.:-]+$/ ? $2 : ""
             backend_section = $1 == "backend" ? $2 : ""
             if ($1 ~ /^(backend|listen)$/) backend_names[$2]++
+            if (action == "add" && backend_section) backend_lines[$2] = FNR
             next
         }
         action == "add" && backend_section && NF && $1 !~ /^#/ {
@@ -216,7 +221,7 @@ relay_external_config() {
             if ($3 == "reject" && $9 ~ /^![[:alnum:]_.:-]+$/) reject_acl = substr($9, 2)
             if ($3 == "accept" && $9 ~ /^[[:alnum:]_.:-]+$/) accept_acl = $9
         }
-        entry && action == "add" && $1 == "use_backend" && !first_switch { first_switch = FNR }
+        entry && action == "add" && NF && $1 !~ /^#/ { entry_end = FNR }
         !frontend { next }
         $1 == "acl" {
             key = section SUBSEP $2
@@ -225,6 +230,7 @@ relay_external_config() {
             else {
                 acl_lists[key, ++acl_counts[key]] = list
                 acl_fetches[key, acl_counts[key]] = $3 ($4 == "-i" ? " -i" : "")
+                if (entry && action == "add") acl_lines[key, acl_counts[key]] = FNR
             }
         }
         $1 == "use_backend" && $2 ~ /^[[:alnum:]_.:-]+$/ && $3 == "if" {
@@ -238,11 +244,16 @@ relay_external_config() {
                 rule_lines[count] = FNR
             } else if ($4 == "{" && $5 ~ /^(req\.ssl_sni|req_ssl_sni|ssl_fc_sni)$/ && $NF == "}") {
                 list = collect_sni(6 + ($6 == "-i"), NF - 1)
+                direct_sni = (list != "")
                 remaining = record_routes(list, frontend, $2)
                 if (action == "remove" && remaining != list) {
                     edits[FNR] = route_rule(FNR, $2, $5 ($6 == "-i" ? " -i" : ""), remaining)
                 }
             }
+        }
+        entry && action == "add" && $1 == "use_backend" && !first_other_switch {
+            if (direct_sni) last_sni_switch = FNR
+            else first_other_switch = FNR
         }
         END {
             for (i = 1; i <= count; i++) {
@@ -265,25 +276,32 @@ relay_external_config() {
             if (action == "add") {
                 if (entry_count != 1) exit 21
                 if (found) exit 22
-                if (entry) entry_end = FNR
+                acl_after = allowlist_line()
+                if (last_sni_switch) route_after = last_sni_switch
+                else if (first_other_switch) route_after = first_other_switch - 1
+                else route_after = entry_end
                 backend = "exit_" domain
                 for (suffix = 2; backend_names[backend]; suffix++) {
                     if (backend_names[backend] == 1 && backend_directives[backend] == 2 &&
                         backend_tcp[backend] && backend_node[backend]) break
                     backend = "exit_" suffix "_" domain
                 }
+                backend_line = backend_lines[backend]
             }
             for (line = 1; line <= FNR; line++) {
-                if (action == "add" && line == first_switch) emit_route()
+                if (line == backend_line && raw[line - 1] != "# " domain) printf "# %s\n", domain
                 if (!(line in edits)) print raw[line]
                 else if (edits[line] != "") print edits[line] comments[line]
-                if (action == "add" && !first_switch && line == entry_end) {
-                    emit_route()
-                    print ""
+                if (line == acl_after) {
+                    match(raw[line], /^[[:blank:]]*/)
+                    printf "%sacl %s req.ssl_sni -i %s\n", substr(raw[line], 1, RLENGTH), accept_acl, domain
+                }
+                if (line == route_after) {
+                    printf "%suse_backend %s if { req.ssl_sni -i %s }\n", last_sni_switch ? indents[line] : "    ", backend, domain
                 }
             }
             if (action == "add" && !backend_names[backend]) {
-                printf "\nbackend %s\n    mode tcp\n    server node %s:443 check inter 10s fall 3 rise 2\n", backend, domain
+                printf "\n# %s\nbackend %s\n    mode tcp\n    server node %s:443 check inter 10s fall 3 rise 2\n", domain, backend, domain
             }
         }
     ' "$RELAY_HAPROXY_CONFIG" || status=$?
