@@ -61,7 +61,7 @@
   с ежедневным обновлением через cron.
 - Управление [Node Accelerator](https://github.com/jestivald/node-accelerator):
   оптимизация, защита, диагностика, CLI-отчёты и откат установленных модулей.
-- Встроенная проверка доступности Discord, YouTube, Telegram и Instagram.
+- Проверка доступности сайтов и сетевых блокировок через DPI Detector.
 - Просмотр `xlogs` и access-логов Xray.
 - Проверка нового сервера через `Node Precheck`.
 - Дополнительные диагностические команды `ipregion`, `IP Check Place` и
@@ -304,7 +304,7 @@ sudo python3 -B /opt/RemnaSuper/haproxy/collector/collector.py export --month 20
 - Запуск внешнего скрипта `Davoyan/ipregion`.
 - Запуск `IP Check Place`.
 - Проверка канала через `bench.sh`.
-- Проверка доступности Discord, YouTube, Telegram и Instagram.
+- **Проверить доступность сервисов** — скачать и запустить DPI Detector.
 - Просмотр логов командой `docker exec remnanode xlogs`.
 - Просмотр `/var/log/remnanode/access.log` в реальном времени.
 - Комплексная диагностика соединения между двумя VPS.
@@ -594,23 +594,17 @@ VPS или VM: проверьте неверный секрет и IP, заня�
 /etc/logrotate.d/remnanode
 ```
 
-### Встроенная проверка доступности
+### DPI Detector
 
-Проверка выполняется без скачивания сторонних скриптов и показывает для
-Discord, YouTube, Telegram и Instagram:
+После подтверждения RemnaSuper скачивает исходники релиза
+[DPI Detector v4.2.4](https://github.com/Runnin4ik/dpi-detector/releases/tag/v4.2.4),
+устанавливает зависимости во временное окружение Python и запускает
+`dpi_detector.py` от `root`. В интерактивном меню можно выбрать проверки
+доступности сайтов, блокировок HTTP/TLS, подмены DNS и обрывов TCP-соединений.
+После выхода RemnaSuper удаляет исходники и окружение.
 
-- DNS IPv4 и IPv6;
-- ICMP-пинг и потери пакетов;
-- HTTP-код и версию HTTP;
-- результат проверки TLS-сертификата;
-- локальный и удалённый IP/порт;
-- конечный URL после перенаправлений;
-- задержки DNS, TCP, TLS, TTFB и общее время;
-- объём полученных данных и скорость загрузки.
-
-Проверка намеренно игнорирует переменные HTTP-прокси и выполняет запросы
-напрямую. Отсутствие ICMP-ответа само по себе не означает, что HTTPS
-недоступен.
+Для запуска нужны `curl`, `tar`, Python 3 с модулем `venv` (пакет
+`python3-venv` на Debian/Ubuntu), доступ к GitHub и индексу пакетов Python.
 
 ### Node Accelerator
 
@@ -732,7 +726,7 @@ RemnaSuper
         ├── http_redirect.sh   # HTTP 301 и nginx.conf
         ├── ipv6.sh            # отключение IPv6 через sysctl
         ├── tls_hsts.sh        # заголовок HSTS для TLS server-блоков
-        ├── connectivity.sh    # встроенная проверка доступности
+        ├── dpi_detector.sh    # загрузка и запуск DPI Detector
         ├── xray.sh            # просмотр логов Xray
         ├── tor.sh             # установка и обслуживание Tor
         ├── psiphon.sh         # управление подключениями Psiphon
@@ -782,9 +776,9 @@ find lib -type f -name '*.sh' -print0 \
 - Запускайте RemnaSuper только на сервере, которым вы управляете.
 - Перед изменением Compose сохраняйте и просматривайте созданный `.bak`.
 - Установка `remnawave-reverse-proxy`, Node Accelerator, `Node Precheck`,
-  `ipregion`, `IP Check Place`, `bench.sh`, Psiphon и ss-zapret2 скачивает код из
-  внешних репозиториев или URL. Ознакомьтесь с upstream-проектами перед
-  запуском.
+  `ipregion`, `IP Check Place`, `bench.sh`, DPI Detector, Psiphon и ss-zapret2
+  скачивает код из внешних репозиториев или URL. Ознакомьтесь с
+  upstream-проектами перед запуском.
 - `Node Precheck` обращается к внешним сервисам и передаёт им публичный IP для
   проверок; тест скорости может передать до 25 МБ и скачать до 190 МБ. Тест
   записи на диск выключен по умолчанию.

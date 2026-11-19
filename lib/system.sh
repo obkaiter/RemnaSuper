@@ -14,7 +14,7 @@ _remnasuper_load_system_modules() {
     source "$module_dir/relay_site.sh"
     source "$module_dir/node_precheck.sh"
     source "$module_dir/ssh_keys.sh"
-    source "$module_dir/connectivity.sh"
+    source "$module_dir/dpi_detector.sh"
     source "$module_dir/xray.sh"
     source "$module_dir/tor.sh"
     source "$module_dir/warp.sh"

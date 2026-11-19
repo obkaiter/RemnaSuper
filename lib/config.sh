@@ -16,6 +16,7 @@ GITHUB_BRANCH="${REMNASUPER_BRANCH:-main}"
 GITHUB_RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}"
 GITHUB_TARBALL_URL="https://codeload.github.com/${GITHUB_REPO}/tar.gz/refs/heads/${GITHUB_BRANCH}"
 NODE_PRECHECK_URL="https://vpn-hub.pro/static/tools/node-precheck.sh"
+DPI_DETECTOR_URL="https://codeload.github.com/Runnin4ik/dpi-detector/tar.gz/13ddc49bf5279c7fc08d3f3cca0e974b9a555191"
 
 NODE_DIR="/opt/remnanode"
 AGENT_DIR="/opt/remnawave-node-agent"
