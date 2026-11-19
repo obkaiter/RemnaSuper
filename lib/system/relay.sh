@@ -154,52 +154,146 @@ write_relay_routing_section() {
     write_relay_proxy_config "$@"
 }
 
-read_external_relay_routes() {
-    LC_ALL=C awk '
-        function collect_sni(first,    i, result) {
-            for (i = first; i <= NF; i++) {
+relay_external_config() {
+    local action="$1" domain="${2:-}" target_frontend="${3:-}" target_backend="${4:-}" status=0
+
+    LC_ALL=C awk -v action="$action" -v domain="$domain" \
+        -v target_frontend="$target_frontend" -v target_backend="$target_backend" '
+        function collect_sni(first, last,    i, result) {
+            for (i = first; i <= last; i++) {
                 if ($i !~ /^[[:alnum:]]([[:alnum:].-]*[[:alnum:]])?$/ || $i !~ /\./) return ""
                 result = result " " $i
             }
             return result
         }
-        function record_routes(list, frontend, backend,    i, n, names, key) {
+        function record_routes(list, frontend, backend,    i, n, names, key, remaining) {
             n = split(list, names, " ")
             for (i = 1; i <= n; i++) {
                 key = tolower(names[i]) " " frontend " " backend
-                if (!seen[key]++) print "external", key
+                if (action == "list" && !seen[key]++) print "external", key
+                if (tolower(names[i]) == domain && frontend == target_frontend &&
+                    (action == "add" || backend == target_backend)) found = 1
+                else remaining = remaining " " names[i]
             }
+            return remaining
         }
-        { sub(/[[:space:]]+#.*/, "") }
+        function route_rule(line, backend, fetch, names) {
+            return names == "" ? "" : indents[line] "use_backend " backend " if { " fetch names " }"
+        }
+        function emit_route(    key, i, list) {
+            key = entry_section SUBSEP accept_acl
+            if (accept_acl != "" && accept_acl == reject_acl && acl_counts[key] && !unsupported[key]) {
+                for (i = 1; i <= acl_counts[key]; i++) list = list acl_lists[key, i]
+                if (index(tolower(list) " ", " " domain " ") == 0) {
+                    printf "    acl %s req.ssl_sni -i %s\n", accept_acl, domain
+                }
+            }
+            printf "    use_backend %s if { req.ssl_sni -i %s }\n", backend, domain
+        }
+        {
+            if (action != "list") raw[FNR] = $0
+            sub(/[[:space:]]+#.*/, "")
+        }
         $1 ~ /^(frontend|listen|backend|defaults|global|peers|resolvers|userlist|cache|mailers|program|ring|log-forward|log-profile|traces|acme|crt-store|http-errors|fcgi-app)$/ {
+            if (entry && action == "add") entry_end = FNR - 1
             section++
+            entry = ($1 == "frontend" && $2 == target_frontend)
+            if (entry) { entry_count++; entry_section = section }
             frontend = $1 ~ /^(frontend|listen)$/ && $2 ~ /^[[:alnum:]_.:-]+$/ ? $2 : ""
+            backend_section = $1 == "backend" ? $2 : ""
+            if ($1 ~ /^(backend|listen)$/) backend_names[$2]++
+            next
         }
+        action == "add" && backend_section && NF && $1 !~ /^#/ {
+            backend_directives[backend_section]++
+            $1 = $1
+            if ($0 == "mode tcp") backend_tcp[backend_section] = 1
+            if ($0 == "server node " domain ":443 check inter 10s fall 3 rise 2") backend_node[backend_section] = 1
+        }
+        entry && action == "add" && NF == 9 && $1 == "tcp-request" && $2 == "content" &&
+            $4 == "if" && $5 == "{" && $6 ~ /^(req\.ssl_hello_type|req_ssl_hello_type)$/ &&
+            $7 == "1" && $8 == "}" {
+            if ($3 == "reject" && $9 ~ /^![[:alnum:]_.:-]+$/) reject_acl = substr($9, 2)
+            if ($3 == "accept" && $9 ~ /^[[:alnum:]_.:-]+$/) accept_acl = $9
+        }
+        entry && action == "add" && $1 == "use_backend" && !first_switch { first_switch = FNR }
         !frontend { next }
         $1 == "acl" {
             key = section SUBSEP $2
-            list = $3 ~ /^(req\.ssl_sni|req_ssl_sni|ssl_fc_sni)$/ ? collect_sni(4 + ($4 == "-i")) : ""
+            list = $3 ~ /^(req\.ssl_sni|req_ssl_sni|ssl_fc_sni)$/ ? collect_sni(4 + ($4 == "-i"), NF) : ""
             if (list == "") unsupported[key] = 1
-            else names[key] = names[key] list
+            else {
+                acl_lists[key, ++acl_counts[key]] = list
+                acl_fetches[key, acl_counts[key]] = $3 ($4 == "-i" ? " -i" : "")
+            }
         }
         $1 == "use_backend" && $2 ~ /^[[:alnum:]_.:-]+$/ && $3 == "if" {
+            indents[FNR] = substr($0, 1, match($0, /[^[:space:]]/) - 1)
+            if (action == "remove") comments[FNR] = substr(raw[FNR], length($0) + 1)
             if (NF == 4) {
                 count++
                 acl_keys[count] = section SUBSEP $4
                 frontend_names[count] = frontend
-                backend_names[count] = $2
+                rule_backends[count] = $2
+                rule_lines[count] = FNR
             } else if ($4 == "{" && $5 ~ /^(req\.ssl_sni|req_ssl_sni|ssl_fc_sni)$/ && $NF == "}") {
-                NF--
-                record_routes(collect_sni(6 + ($6 == "-i")), frontend, $2)
+                list = collect_sni(6 + ($6 == "-i"), NF - 1)
+                remaining = record_routes(list, frontend, $2)
+                if (action == "remove" && remaining != list) {
+                    edits[FNR] = route_rule(FNR, $2, $5 ($6 == "-i" ? " -i" : ""), remaining)
+                }
             }
         }
         END {
             for (i = 1; i <= count; i++) {
                 key = acl_keys[i]
-                if (!unsupported[key]) record_routes(names[key], frontend_names[i], backend_names[i])
+                if (unsupported[key]) continue
+                modified = 0
+                replacement = ""
+                line = rule_lines[i]
+                for (j = 1; j <= acl_counts[key]; j++) {
+                    list = acl_lists[key, j]
+                    remaining = record_routes(list, frontend_names[i], rule_backends[i])
+                    if (list != remaining) modified = 1
+                    rule = route_rule(line, rule_backends[i], acl_fetches[key, j], remaining)
+                    if (rule != "") replacement = replacement (replacement == "" ? "" : "\n") rule
+                }
+                if (action == "remove" && modified) edits[line] = replacement
+            }
+            if (action == "list") exit
+            if (action == "remove" && !found) exit 23
+            if (action == "add") {
+                if (entry_count != 1) exit 21
+                if (found) exit 22
+                if (entry) entry_end = FNR
+                backend = "exit_" domain
+                for (suffix = 2; backend_names[backend]; suffix++) {
+                    if (backend_names[backend] == 1 && backend_directives[backend] == 2 &&
+                        backend_tcp[backend] && backend_node[backend]) break
+                    backend = "exit_" suffix "_" domain
+                }
+            }
+            for (line = 1; line <= FNR; line++) {
+                if (action == "add" && line == first_switch) emit_route()
+                if (!(line in edits)) print raw[line]
+                else if (edits[line] != "") print edits[line] comments[line]
+                if (action == "add" && !first_switch && line == entry_end) {
+                    emit_route()
+                    print ""
+                }
+            }
+            if (action == "add" && !backend_names[backend]) {
+                printf "\nbackend %s\n    mode tcp\n    server node %s:443 check inter 10s fall 3 rise 2\n", backend, domain
             }
         }
-    ' "$RELAY_HAPROXY_CONFIG"
+    ' "$RELAY_HAPROXY_CONFIG" || status=$?
+
+    case "$status" in
+        21) error "Для добавления подключения нужен один frontend $target_frontend." >&2 ;;
+        22) error "SNI $domain уже настроен в $target_frontend." >&2 ;;
+        23) error "Маршрут SNI $domain к $target_backend в $target_frontend отсутствует." >&2 ;;
+    esac
+    return "$status"
 }
 
 read_relay_connections() {
@@ -235,7 +329,7 @@ read_relay_connections() {
         fi
     fi
     if [[ "$scope" == external ]]; then
-        routes="$(read_external_relay_routes)" || return 1
+        routes="$(relay_external_config list)" || return 1
     fi
     if [[ -n "$routes" ]]; then
         mapfile -t "$connections_variable" <<< "$routes" || return 1
@@ -249,7 +343,7 @@ check_relay_routing_editable() {
     local mode="$1" listeners
 
     if [[ "$mode" == external ]]; then
-        error "Подключения из ручной конфигурации можно просматривать. Для изменения маршрутов в $RELAY_HAPROXY_CONFIG отредактируйте соответствующий frontend."
+        error "Это действие требует конфигурации HAProxy, управляемой RemnaSuper."
         return 1
     fi
     if [[ "$mode" == empty ]]; then
@@ -329,7 +423,8 @@ commit_relay_config() (
     fi
     if systemctl is-active --quiet haproxy; then
         was_active=1
-        if [[ ( "$generator" == relay_stats_config && "$1" == add ) || "$generator" == write_relay_routing_config ]]; then
+        if [[ ( "$generator" == relay_stats_config && "$1" == add ) ||
+            "$generator" == write_relay_routing_config || "$generator" == relay_external_config ]]; then
             previous_worker="$(relay_traffic_command probe --worker 2>/dev/null)" || previous_worker=''
         fi
     fi
@@ -409,11 +504,34 @@ install_relay_packages() (
 )
 
 change_relay_connection() (
-    local action="$1" domain="$2"
+    local action="$1" domain="$2" frontend="${3:-}" backend="${4:-}"
     local route mode found=0
     local -a connections=() updated=()
 
     lock_relay && check_command systemctl && read_relay_connections connections mode || return 1
+    if [[ "$mode" == external ]]; then
+        if [[ -L "$RELAY_HAPROXY_CONFIG" ]]; then
+            error "Не удалось изменить символическую ссылку $RELAY_HAPROXY_CONFIG."
+            return 1
+        fi
+        if [[ "$action" == add ]]; then
+            valid_relay_domain "$domain" || return 1
+            commit_relay_config 0 relay_external_config add "$domain" bitwire_entry || return 1
+            success "Добавлено подключение $domain → $domain:443."
+        else
+            if [[ -z "$frontend" || -z "$backend" ]]; then
+                error "Режим конфигурации HAProxy изменился. Выберите подключение заново."
+                return 1
+            fi
+            commit_relay_config 0 relay_external_config remove "$domain" "$frontend" "$backend" || return 1
+            success "Подключение с SNI $domain удалено."
+        fi
+        return 0
+    fi
+    if [[ -n "$frontend" || -n "$backend" ]]; then
+        error "Режим конфигурации HAProxy изменился. Выберите подключение заново."
+        return 1
+    fi
     for route in "${connections[@]}"; do
         if [[ "${route#* }" == "$domain" ]]; then
             found=1
