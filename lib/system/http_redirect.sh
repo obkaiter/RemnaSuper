@@ -141,7 +141,7 @@ enable_http_redirect() {
         pause
         return 1
     fi
-    if grep -Fxq 'ufw allow 80/tcp' <<< "$ufw_rules"; then
+    if grep -Eq "^ufw allow 80/tcp( comment .*)?$" <<< "$ufw_rules"; then
         rule_existed=1
     fi
 
@@ -164,7 +164,7 @@ enable_http_redirect() {
     fi
 
     step "Открытие TCP-порта 80 в UFW..."
-    if ! ufw allow 80/tcp; then
+    if ! ufw allow 80/tcp comment 'HTTP 301'; then
         [ "$redirect_present" -eq 0 ] && rm -f "$temp_file"
         error "Не удалось добавить правило UFW для порта 80."
         pause
@@ -183,7 +183,7 @@ enable_http_redirect() {
         if ! _http_redirect_restore_config "$backup_file" "$temp_file"; then
             error "Не удалось восстановить nginx.conf из $backup_file."
         fi
-        if [ "$rule_existed" -eq 0 ] && ! ufw --force delete allow 80/tcp; then
+        if [ "$rule_existed" -eq 0 ] && ! ufw --force delete allow 80/tcp comment 'HTTP 301'; then
             warn "Не удалось удалить новое правило UFW для порта 80."
         fi
         rm -f "$temp_file"
@@ -201,7 +201,7 @@ enable_http_redirect() {
         else
             error "Не удалось восстановить nginx.conf из $backup_file."
         fi
-        if [ "$rule_existed" -eq 0 ] && ! ufw --force delete allow 80/tcp; then
+        if [ "$rule_existed" -eq 0 ] && ! ufw --force delete allow 80/tcp comment 'HTTP 301'; then
             warn "Не удалось удалить новое правило UFW для порта 80."
         fi
         rm -f "$temp_file"
