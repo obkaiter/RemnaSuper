@@ -1,11 +1,54 @@
 #!/usr/bin/env bash
 
-dpi_detector_session() (
-    local tool work_dir script_status
+dpi_detector_install_dependencies() {
+    local python="$1" dependency python_version
+    local -a packages=() apt_options=(-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
 
-    for tool in curl tar python3 timeout; do
+    for dependency in curl:curl tar:tar gzip:gzip ps:procps; do
+        check_command "${dependency%%:*}" >/dev/null || packages+=("${dependency#*:}")
+    done
+    if ! check_command timeout >/dev/null || ! check_command mktemp >/dev/null ||
+        ! check_command rm >/dev/null; then
+        packages+=(coreutils)
+    fi
+    if [[ ! -s /etc/ssl/certs/ca-certificates.crt ]]; then
+        packages+=(ca-certificates)
+    fi
+
+    if ! check_command "$python" >/dev/null; then
+        packages+=(python3-venv)
+    elif ! "$python" -E -c 'import ensurepip, venv; ensurepip.version()' >/dev/null 2>&1; then
+        if ! python_version="$("$python" -E -c 'import sys; print("%d.%d" % sys.version_info[:2])')" ||
+            [[ ! "$python_version" =~ ^3\.[0-9]+$ ]]; then
+            error "Не удалось определить версию системного Python."
+            return 1
+        fi
+        packages+=("python${python_version}-venv")
+    fi
+
+    (( ${#packages[@]} )) || return 0
+    check_command apt-get || return 1
+
+    step "Установка системных зависимостей DPI Detector: ${packages[*]}."
+    if ! DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" update ||
+        ! DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" install -y \
+            --no-install-recommends "${packages[@]}"; then
+        error "Не удалось установить системные зависимости DPI Detector: ${packages[*]}."
+        return 1
+    fi
+}
+
+dpi_detector_session() (
+    local python=/usr/bin/python3 tool work_dir script_status
+
+    dpi_detector_install_dependencies "$python" || return 1
+    for tool in curl tar gzip ps timeout mktemp rm "$python"; do
         check_command "$tool" || return 1
     done
+    if ! "$python" -E -c 'import sys; sys.exit(sys.version_info < (3, 9))'; then
+        error "Для зависимостей DPI Detector нужен системный Python версии 3.9 или новее."
+        return 1
+    fi
 
     work_dir="$(mktemp -d /tmp/remnasuper-dpi.XXXXXXXXXX)" || {
         error "Не удалось создать временный каталог для DPI Detector."
@@ -31,8 +74,8 @@ dpi_detector_session() (
     fi
 
     step "Подготовка временного окружения Python"
-    if ! python3 -m venv .venv; then
-        error "Не удалось создать окружение Python. На Debian/Ubuntu проверьте наличие пакета python3-venv."
+    if ! "$python" -E -m venv .venv; then
+        error "Не удалось создать окружение Python для DPI Detector."
         return 1
     fi
     if ! timeout 180s .venv/bin/python -m pip --disable-pip-version-check --no-cache-dir \
