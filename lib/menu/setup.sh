@@ -17,7 +17,7 @@ show_setup_menu() {
     menu_section "Настройка ноды"
     menu_item 7 "Установить remnawave-reverse-proxy"
     menu_item 8 "Сменить порт взаимодействия с панелью"
-    menu_item 9 "Установить сертификаты"
+    menu_item 9 "Подключить сертификаты в ноду"
     menu_item 10 "Исправить логи (access.log, xray.out.log)"
     menu_item 11 "Заглушка: TLS 1.2, TLS 1.3 и HSTS"
     menu_item 12 "Установка/удаление geofiles"
@@ -57,7 +57,7 @@ initial_setup_menu() {
             8) run_action "Смена порта взаимодействия с панелью" \
                 "В docker-compose.yml будет изменён порт NODE_PORT, а правило UFW для IP-адреса панели перенесено на новый порт. Если порт не указан, будет выбран свободный случайный порт. Затем нода будет перезапущена; подключения могут прерваться на 5–10 секунд." \
                 change_node_port ;;
-            9) run_action "Установить сертификаты" \
+            9) run_action "Подключить сертификаты в ноду" \
                 "Домен сертификата будет найден в docker-compose.yml, файл будет сохранён в бэкап, сертификаты подключены к RemnaNode, после чего нода будет перезапущена." \
                 install_remnanode_certificates ;;
             10) run_action "Исправить логи (access.log, xray.out.log)" \

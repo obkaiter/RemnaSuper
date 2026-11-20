@@ -3,9 +3,10 @@
 show_relay_menu() {
     clear
     show_brand "Настройка релея"
-    menu_item 1 "Установка HAProxy"
+    menu_item 1 "Первоначальная настройка"
     menu_item 2 "Обслуживание HAProxy"
     menu_item 3 "Просмотр статистики"
+    menu_section "Навигация"
     menu_back_item
 }
 
@@ -33,6 +34,7 @@ show_relay_connections_menu() {
     done
     menu_rows+=("")
     menu_item 1 "Добавить подключение"
+    menu_section "Навигация"
     menu_back_item
 }
 
@@ -40,6 +42,7 @@ show_relay_connection_menu() {
     clear
     show_brand "$1 → $2"
     menu_danger_item 1 "Удалить подключение"
+    menu_section "Навигация"
     menu_back_item
 }
 

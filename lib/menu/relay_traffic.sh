@@ -9,6 +9,7 @@ show_relay_installation_menu() {
     menu_item 4 "Перезапустить HAProxy"
     menu_item 5 "Установить сайт-заглушку"
     menu_danger_item 6 "Удалить HAProxy и сборщик"
+    menu_section "Навигация"
     menu_back_item
 }
 
@@ -23,6 +24,7 @@ show_relay_maintenance_menu() {
     menu_item 6 "Управление подключениями"
     menu_item 7 "Создать резервную копию SQLite"
     menu_item 8 "Выгрузить статистику за месяц в CSV"
+    menu_section "Навигация"
     menu_back_item
 }
 
@@ -38,6 +40,7 @@ show_relay_traffic_menu() {
     menu_item 7 "Список обнаруженных Backend"
     menu_item 8 "Последние измерения"
     menu_item 9 "Состояние сборщика"
+    menu_section "Навигация"
     menu_back_item
 }
 
@@ -49,6 +52,7 @@ show_relay_backend_menu() {
     for name in "$@"; do
         menu_item "backend:$name" "$name"
     done
+    menu_section "Навигация"
     menu_back_item
 }
 
@@ -121,6 +125,7 @@ show_relay_uninstall_menu() {
     show_brand "Удалить HAProxy и сборщик"
     menu_item 1 "Удалить с сохранением истории"
     menu_danger_item 2 "Удалить вместе с историей и резервными копиями"
+    menu_section "Навигация"
     menu_back_item
 }
 
