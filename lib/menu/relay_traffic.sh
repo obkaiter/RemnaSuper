@@ -16,15 +16,15 @@ show_relay_installation_menu() {
 show_relay_maintenance_menu() {
     clear
     show_brand "Обслуживание HAProxy"
-    menu_item 1 "Состояние HAProxy"
-    menu_item 2 "Просмотреть конфигурацию HAProxy"
-    menu_item 3 "Просмотреть логи HAProxy"
+    menu_item 1 "Управление подключениями"
+    menu_item 2 "Лимит скорости"
+    menu_item 3 "Состояние HAProxy"
     menu_item 4 "Проверить Stats Socket"
-    menu_item 5 "Просмотр статистики"
-    menu_item 6 "Управление подключениями"
-    menu_item 7 "Создать резервную копию SQLite"
-    menu_item 8 "Выгрузить статистику за месяц в CSV"
-    menu_item 9 "Лимит скорости"
+    menu_item 5 "Просмотреть конфигурацию HAProxy"
+    menu_item 6 "Просмотреть логи HAProxy"
+    menu_item 7 "Просмотр статистики"
+    menu_item 8 "Создать резервную копию SQLite"
+    menu_item 9 "Выгрузить статистику за месяц в CSV"
     menu_section "Навигация"
     menu_back_item
 }
@@ -247,20 +247,20 @@ relay_maintenance_menu() {
     while true; do
         select_menu choice 1 show_relay_maintenance_menu || return
         case "$choice" in
-            1) systemctl --no-pager status haproxy; pause ;;
-            2) relay_view_haproxy_config ;;
-            3) journalctl -u haproxy.service -n 200 --no-pager | relay_page; pause ;;
+            1) relay_connections_menu ;;
+            2) relay_bandwidth_menu ;;
+            3) systemctl --no-pager status haproxy; pause ;;
             4) relay_traffic_command probe; pause ;;
-            5) relay_traffic_menu ;;
-            6) relay_connections_menu ;;
-            7) run_action "Резервная копия SQLite" "Снимок базы будет сохранён в $RELAY_DIR/backups." relay_traffic_command backup; pause ;;
-            8)
+            5) relay_view_haproxy_config ;;
+            6) journalctl -u haproxy.service -n 200 --no-pager | relay_page; pause ;;
+            7) relay_traffic_menu ;;
+            8) run_action "Резервная копия SQLite" "Снимок базы будет сохранён в $RELAY_DIR/backups." relay_traffic_command backup; pause ;;
+            9)
                 if relay_read_month month; then
                     run_action "Выгрузка статистики" "CSV за $month будет сохранён в $RELAY_DIR/exports." relay_traffic_command export --month "$month"
                     pause
                 fi
                 ;;
-            9) relay_bandwidth_menu ;;
             0) return ;;
         esac
     done
