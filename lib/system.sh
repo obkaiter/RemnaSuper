@@ -9,6 +9,7 @@ _remnasuper_load_system_modules() {
     source "$module_dir/provisioning.sh"
     source "$module_dir/relay_deploy.sh"
     source "$module_dir/relay.sh"
+    source "$module_dir/relay_bandwidth.sh"
     source "$module_dir/relay_traffic.sh"
     source "$module_dir/relay_acme.sh"
     source "$module_dir/relay_site.sh"

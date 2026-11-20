@@ -24,8 +24,57 @@ show_relay_maintenance_menu() {
     menu_item 6 "Управление подключениями"
     menu_item 7 "Создать резервную копию SQLite"
     menu_item 8 "Выгрузить статистику за месяц в CSV"
+    menu_item 9 "Лимит скорости"
     menu_section "Навигация"
     menu_back_item
+}
+
+show_relay_bandwidth_menu() {
+    clear
+    show_brand "Лимит скорости"
+    menu_rows+=("    $1" "")
+    menu_item 1 "Установить лимит скорости"
+    menu_danger_item 2 "Удалить ограничение скорости"
+    menu_section "Навигация"
+    menu_back_item
+}
+
+relay_bandwidth_menu() {
+    local choice current status mbps
+    local apply_description="RemnaSuper проверит новый конфиг и сохранит резервную копию текущего. Работающий HAProxy перечитает конфигурацию через reload, остановленная служба запустится и займёт настроенные порты. Изменение действует для новых соединений."
+
+    while true; do
+        if ! current="$(read_relay_bandwidth 2>/dev/null)"; then
+            status="Не удалось определить лимит скорости RemnaSuper."
+        elif [[ -z "$current" ]]; then
+            status="Лимит скорости RemnaSuper не настроен."
+        else
+            status="Текущий лимит: $current Мбит/с на IP-адрес в каждом направлении."
+        fi
+        select_menu choice 1 show_relay_bandwidth_menu "$status" || return
+        case "$choice" in
+            1)
+                printf 'Введите лимит в Мбит/с (Enter без ввода — назад): '
+                IFS= read -r mbps || return
+                [[ -n "$mbps" ]] || continue
+                if ! valid_relay_bandwidth "$mbps"; then
+                    error "Введите целое число от 1 до $RELAY_BANDWIDTH_MAX_MBPS Мбит/с."
+                else
+                    run_action "Установить лимит скорости" \
+                        "Все TCP-соединения с одного IP через bitwire_entry будут делить $mbps Мбит/с на загрузку и отдельно $mbps Мбит/с на отдачу. $apply_description" \
+                        change_relay_bandwidth set "$mbps"
+                fi
+                pause
+                ;;
+            2)
+                run_action "Удалить ограничение скорости" \
+                    "RemnaSuper удалит свои фильтры и таблицы лимита скорости для bitwire_entry. $apply_description" \
+                    change_relay_bandwidth remove
+                pause
+                ;;
+            0) return ;;
+        esac
+    done
 }
 
 show_relay_traffic_menu() {
@@ -211,6 +260,7 @@ relay_maintenance_menu() {
                     pause
                 fi
                 ;;
+            9) relay_bandwidth_menu ;;
             0) return ;;
         esac
     done

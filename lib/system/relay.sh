@@ -332,7 +332,7 @@ read_relay_connections() {
         fi
     fi
     if [[ "$scope" == managed || "$scope" == legacy ]]; then
-        generated="$(relay_stats_config strip "$RELAY_HAPROXY_CONFIG")" || return 1
+        generated="$(relay_stats_config strip "$RELAY_HAPROXY_CONFIG" | relay_bandwidth_config strip -)" || return 1
         if [[ "$scope" == managed ]]; then
             generated="$(relay_routing_section routes <<< "$generated")" || return 1
         fi
@@ -442,7 +442,8 @@ commit_relay_config() (
     if systemctl is-active --quiet haproxy; then
         was_active=1
         if [[ ( "$generator" == relay_stats_config && "$1" == add ) ||
-            "$generator" == write_relay_routing_config || "$generator" == relay_external_config ]]; then
+            "$generator" == write_relay_routing_config || "$generator" == relay_external_config ||
+            "$generator" == relay_bandwidth_config ]]; then
             previous_worker="$(relay_traffic_command probe --worker 2>/dev/null)" || previous_worker=''
         fi
     fi
@@ -474,6 +475,17 @@ commit_relay_config() (
 )
 
 write_relay_routing_config() {
+    local bandwidth
+
+    bandwidth="$(relay_bandwidth_config status "$RELAY_HAPROXY_CONFIG")" || return 1
+    if [[ -n "$bandwidth" ]]; then
+        render_relay_routing_config "$@" | relay_bandwidth_config set - "$bandwidth"
+    else
+        render_relay_routing_config "$@"
+    fi
+}
+
+render_relay_routing_config() {
     local mode="$1" managed_lines contstats=0
     shift
 
