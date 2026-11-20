@@ -180,6 +180,19 @@ relay_external_config() {
         function route_rule(line, backend, fetch, names) {
             return names == "" ? "" : indents[line] "use_backend " backend " if { " fetch names " }"
         }
+        function backend_is_used(backend,    line, text) {
+            for (line = 1; line <= FNR; line++) {
+                if (line == backend_lines[backend]) continue
+                text = (line in edits) ? edits[line] : raw[line]
+                if (text ~ /^[[:space:]]*#/) continue
+                sub(/[[:space:]]+#.*/, "", text)
+                if (text ~ /^[[:space:]]*(use_backend|default_backend)[[:space:]]/ &&
+                    text ~ /(%\[|[$\\])/) return 1
+                gsub(/[^[:alnum:]_.:-]+/, " ", text)
+                if (index(" " text " ", " " backend " ")) return 1
+            }
+            return 0
+        }
         function allowlist_line(    key, i, list, line) {
             key = entry_section SUBSEP accept_acl
             if (accept_acl == "" || accept_acl != reject_acl || !acl_counts[key] || unsupported[key]) {
@@ -206,14 +219,15 @@ relay_external_config() {
             frontend = $1 ~ /^(frontend|listen)$/ && $2 ~ /^[[:alnum:]_.:-]+$/ ? $2 : ""
             backend_section = $1 == "backend" ? $2 : ""
             if ($1 ~ /^(backend|listen)$/) backend_names[$2]++
-            if (action == "add" && backend_section) backend_lines[$2] = FNR
+            if (backend_section && (action == "add" || (action == "remove" && NF == 2))) backend_lines[$2] = FNR
             next
         }
-        action == "add" && backend_section && NF && $1 !~ /^#/ {
+        backend_section && (action == "add" || (action == "remove" && backend_section == target_backend)) &&
+            NF && $1 !~ /^#/ {
             backend_directives[backend_section]++
             $1 = $1
-            if ($0 == "mode tcp") backend_tcp[backend_section] = 1
-            if ($0 == "server node " domain ":443 check inter 10s fall 3 rise 2") backend_node[backend_section] = 1
+            if ($0 == "mode tcp") backend_tcp[backend_section] = FNR
+            if ($0 == "server node " domain ":443 check inter 10s fall 3 rise 2") backend_node[backend_section] = FNR
         }
         entry && action == "add" && NF == 9 && $1 == "tcp-request" && $2 == "content" &&
             $4 == "if" && $5 == "{" && $6 ~ /^(req\.ssl_hello_type|req_ssl_hello_type)$/ &&
@@ -272,7 +286,18 @@ relay_external_config() {
                 if (action == "remove" && modified) edits[line] = replacement
             }
             if (action == "list") exit
-            if (action == "remove" && !found) exit 23
+            if (action == "remove") {
+                if (!found) exit 23
+                prefix = substr(target_backend, 1, length(target_backend) - length(domain))
+                if (target_backend == prefix domain && prefix ~ /^exit_([0-9]+_)?$/ &&
+                    backend_lines[target_backend] && backend_names[target_backend] == 1 &&
+                    backend_directives[target_backend] == 2 && backend_tcp[target_backend] &&
+                    backend_node[target_backend] && !backend_is_used(target_backend)) {
+                    line = backend_lines[target_backend]
+                    edits[line] = edits[backend_tcp[target_backend]] = edits[backend_node[target_backend]] = ""
+                    if (raw[line - 1] == "# " domain) edits[line - 1] = ""
+                }
+            }
             if (action == "add") {
                 if (entry_count != 1) exit 21
                 if (found) exit 22
