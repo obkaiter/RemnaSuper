@@ -20,9 +20,8 @@ show_setup_menu() {
     menu_item 9 "Установить сертификаты"
     menu_item 10 "Исправить логи (access.log, xray.out.log)"
     menu_item 11 "Заглушка: TLS 1.2, TLS 1.3 и HSTS"
-    menu_item 12 "HTTP 301 на 80 порте"
-    menu_item 13 "Установка/удаление geofiles"
-    menu_item 14 "Управление Node Accelerator"
+    menu_item 12 "Установка/удаление geofiles"
+    menu_item 13 "Управление Node Accelerator"
 
     menu_section "Навигация"
     menu_back_item
@@ -67,11 +66,8 @@ initial_setup_menu() {
             11) run_action "Заглушка: TLS 1.2, TLS 1.3 и HSTS" \
                 "В каждый TLS server-блок с доменным server_name в /opt/remnanode/nginx.conf будет добавлен заголовок Strict-Transport-Security со сроком 1 год и includeSubDomains. Перед заменой файла будет создана резервная копия, конфигурация nginx будет проверена в контейнере, затем контейнеры RemnaNode будут перезапущены. Текущие подключения могут кратковременно прерваться." \
                 enable_tls_hsts ;;
-            12) run_action "HTTP 301 на 80 порте" \
-                "HTTP 301 на 80 порту означает, что сервер отправляет постоянное перенаправление (Moved Permanently) для запросов, приходящих на стандартный незащищенный веб-порт 80 (обычно используемый для HTTP). Будет выполнено ufw allow 80/tcp comment 'HTTP 301', в /opt/remnanode/nginx.conf добавлен сервер для перенаправления на HTTPS и перезапущена нода. Текущие подключения могут кратковременно прерваться." \
-                enable_http_redirect ;;
-            13) geofiles_menu ;;
-            14) node_accelerator_menu ;;
+            12) geofiles_menu ;;
+            13) node_accelerator_menu ;;
             0) return ;;
         esac
     done

@@ -7,7 +7,8 @@ show_relay_installation_menu() {
     menu_item 2 "Запустить HAProxy"
     menu_danger_item 3 "Остановить HAProxy"
     menu_item 4 "Перезапустить HAProxy"
-    menu_danger_item 5 "Удалить HAProxy и сборщик"
+    menu_item 5 "Установить сайт-заглушку"
+    menu_danger_item 6 "Удалить HAProxy и сборщик"
     menu_back_item
 }
 
@@ -129,13 +130,23 @@ relay_uninstall_menu() {
     select_menu choice 0 show_relay_uninstall_menu || return
     case "$choice" in
         1) run_action "Удаление HAProxy с сохранением истории" \
-            "Пакет HAProxy будет удалён через apt-get. Все маршруты станут недоступны через HAProxy, текущие соединения оборвутся. Сборщик будет остановлен и удалён, его настройки, SQLite, логи и резервные копии останутся в $RELAY_DIR. Из haproxy.cfg будут убраны только директивы, добавленные сборщиком." \
+            "Пакет HAProxy будет удалён через apt-get. Релей и сайт-заглушка станут недоступны через HAProxy, текущие соединения оборвутся. Сборщик будет остановлен и удалён, его настройки, SQLite, логи и резервные копии останутся в $RELAY_DIR. Из haproxy.cfg будут убраны только директивы, добавленные сборщиком." \
             remove_relay_haproxy history ;;
         2) run_action "Полное удаление HAProxy и статистики" \
-            "Пакет HAProxy будет удалён через apt-get. Все маршруты станут недоступны через HAProxy, текущие соединения оборвутся. Сборщик будет остановлен и удалён. Весь $RELAY_DIR, включая SQLite, историю, настройки, логи, выгрузки и резервные копии, будет удалён безвозвратно. Из haproxy.cfg будут убраны только директивы, добавленные сборщиком." \
+            "Пакет HAProxy будет удалён через apt-get. Релей и сайт-заглушка станут недоступны через HAProxy, текущие соединения оборвутся. Сборщик будет остановлен и удалён. Весь $RELAY_DIR, включая SQLite, историю, настройки, логи, выгрузки и резервные копии, будет удалён безвозвратно. Из haproxy.cfg будут убраны только директивы, добавленные сборщиком." \
             remove_relay_haproxy full ;;
         0) return ;;
     esac
+    pause
+}
+
+relay_install_site_action() {
+    local domain
+
+    read_relay_domain domain "Введите домен сайта-заглушки" || return
+    run_action "Установить сайт-заглушку" \
+        "Скрипт установит недостающие пакеты через apt-get и настроит HTTPS-сайт для $domain в $RELAY_SITE_ROOT. Если действующего сертификата нет, скрипт скачает и запустит acme.sh из официального репозитория GitHub и запросит сертификат Let's Encrypt. Для выпуска и продления nginx будет отдавать проверочные файлы на TCP/80, а cron будет запускать продление. DNS домена должен указывать на релей, TCP/80 должен быть доступен из интернета. Скрипт включит автозапуск nginx и применит SNI-маршрут через reload HAProxy с резервной копией конфига. При создании первого маршрута в штатном конфиге HAProxy будет добавлен IPv4-слушатель TCP/443. При восстановлении сайта с повреждённым сертификатом HTTPS может временно отключиться." \
+        install_relay_site "$domain"
     pause
 }
 
@@ -169,7 +180,8 @@ relay_installation_menu() {
             2) run_action "Запуск HAProxy" "HAProxy запустится и займёт порты, указанные в его конфигурации." relay_haproxy_service start; pause ;;
             3) run_action "Остановка HAProxy" "Текущие соединения прервутся. Релей будет недоступен до следующего запуска HAProxy." relay_haproxy_service stop; pause ;;
             4) run_action "Перезапуск HAProxy" "HAProxy проверит конфигурацию и перезапустится. Текущие соединения прервутся, счётчики HAProxy сбросятся." relay_haproxy_service restart; pause ;;
-            5) relay_uninstall_menu ;;
+            5) relay_install_site_action ;;
+            6) relay_uninstall_menu ;;
             0) return ;;
         esac
     done
