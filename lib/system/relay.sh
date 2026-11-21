@@ -171,9 +171,14 @@ relay_external_config() {
             for (i = 1; i <= n; i++) {
                 key = tolower(names[i]) " " frontend " " backend
                 if (action == "list" && !seen[key]++) print "external", key
-                if (tolower(names[i]) == domain && frontend == target_frontend &&
-                    (action == "add" || backend == target_backend)) found = 1
-                else remaining = remaining " " names[i]
+                if (tolower(names[i]) == domain && frontend == target_frontend) {
+                    if (action == "add" || backend == target_backend) {
+                        found = 1
+                        continue
+                    }
+                    if (action == "remove") route_remains = 1
+                }
+                remaining = remaining " " names[i]
             }
             return remaining
         }
@@ -193,19 +198,48 @@ relay_external_config() {
             }
             return 0
         }
-        function allowlist_line(    key, i, list, line) {
-            key = entry_section SUBSEP accept_acl
-            if (accept_acl == "" || accept_acl != reject_acl || !acl_counts[key] || unsupported[key]) {
-                key = entry_section SUBSEP "relay_sni"
-                if (!acl_counts[key] || unsupported[key]) return 0
-                accept_acl = "relay_sni"
+        function allowlist_key(    key, i) {
+            allowlist_acl = accept_acl
+            key = entry_section SUBSEP allowlist_acl
+            if (allowlist_acl == "" || allowlist_acl != reject_acl ||
+                (!acl_counts[key] && !acl_empty_lines[key]) || unsupported[key]) {
+                if (action == "remove" && allowlist_acl != "" && allowlist_acl == reject_acl) return ""
+                allowlist_acl = "relay_sni"
+                key = entry_section SUBSEP allowlist_acl
+                if ((!acl_counts[key] && !acl_empty_lines[key]) || unsupported[key]) return ""
             }
             for (i = 1; i <= acl_counts[key]; i++) {
-                if (acl_fetches[key, i] !~ /^(req\.ssl_sni|req_ssl_sni)( -i)?$/) return 0
+                if (acl_fetches[key, i] !~ /^(req\.ssl_sni|req_ssl_sni)( -i)?$/) return ""
+            }
+            return key
+        }
+        function allowlist_line(key,    i, list, line) {
+            for (i = 1; i <= acl_counts[key]; i++) {
                 list = list acl_lists[key, i]
                 if (i == 1 || acl_lines[key, i] == line + 1) line = acl_lines[key, i]
             }
             return index(tolower(list) " ", " " domain " ") == 0 ? line : 0
+        }
+        function remove_allowlist_sni(key,    i, j, n, names, list, remaining, line, empty_line, has_names) {
+            for (i = 1; i <= acl_counts[key]; i++) {
+                list = acl_lists[key, i]
+                n = split(list, names, " ")
+                remaining = ""
+                for (j = 1; j <= n; j++) {
+                    if (tolower(names[j]) != domain) remaining = remaining " " names[j]
+                }
+                if (remaining != "") has_names = 1
+                if (remaining == list) continue
+                line = acl_lines[key, i]
+                if (remaining != "") {
+                    edits[line] = indents[line] "acl " allowlist_acl " " acl_fetches[key, i] remaining
+                } else {
+                    edits[line] = ""
+                    if (!empty_line) empty_line = line
+                }
+            }
+            if (empty_line && !has_names && !acl_empty_lines[key])
+                edits[empty_line] = indents[empty_line] "acl " allowlist_acl " always_false"
         }
         {
             if (action != "list") raw[FNR] = $0
@@ -214,7 +248,7 @@ relay_external_config() {
         }
         $1 ~ /^(frontend|listen|backend|defaults|global|peers|resolvers|userlist|cache|mailers|program|ring|log-forward|log-profile|traces|acme|crt-store|http-errors|fcgi-app)$/ {
             section++
-            entry = ($1 == "frontend" && $2 == target_frontend)
+            entry = ($2 == target_frontend && ($1 == "frontend" || (action == "remove" && $1 == "listen")))
             if (entry) { entry_count++; entry_section = section; entry_end = FNR }
             frontend = $1 ~ /^(frontend|listen)$/ && $2 ~ /^[[:alnum:]_.:-]+$/ ? $2 : ""
             backend_section = $1 == "backend" ? $2 : ""
@@ -229,7 +263,7 @@ relay_external_config() {
             if ($0 == "mode tcp") backend_tcp[backend_section] = FNR
             if ($0 == "server node " domain ":443 check inter 10s fall 3 rise 2") backend_node[backend_section] = FNR
         }
-        entry && action == "add" && NF == 9 && $1 == "tcp-request" && $2 == "content" &&
+        entry && NF == 9 && $1 == "tcp-request" && $2 == "content" &&
             $4 == "if" && $5 == "{" && $6 ~ /^(req\.ssl_hello_type|req_ssl_hello_type)$/ &&
             $7 == "1" && $8 == "}" {
             if ($3 == "reject" && $9 ~ /^![[:alnum:]_.:-]+$/) reject_acl = substr($9, 2)
@@ -240,13 +274,19 @@ relay_external_config() {
         $1 == "acl" {
             key = section SUBSEP $2
             list = $3 ~ /^(req\.ssl_sni|req_ssl_sni|ssl_fc_sni)$/ ? collect_sni(4 + ($4 == "-i"), NF) : ""
-            if (list == "") unsupported[key] = 1
+            if (entry) {
+                indents[FNR] = substr($0, 1, match($0, /[^[:space:]]/) - 1)
+                comments[FNR] = substr(raw[FNR], length($0) + 1)
+            }
+            if (NF == 3 && $3 == "always_false") acl_empty_lines[key] = FNR
+            else if (list == "") unsupported[key] = 1
             else {
                 acl_lists[key, ++acl_counts[key]] = list
                 acl_fetches[key, acl_counts[key]] = $3 ($4 == "-i" ? " -i" : "")
-                if (entry && action == "add") acl_lines[key, acl_counts[key]] = FNR
+                if (entry) acl_lines[key, acl_counts[key]] = FNR
             }
         }
+        entry && action == "remove" && $1 == "use_backend" { unparsed_switches++ }
         $1 == "use_backend" && $2 ~ /^[[:alnum:]_.:-]+$/ && $3 == "if" {
             indents[FNR] = substr($0, 1, match($0, /[^[:space:]]/) - 1)
             if (action == "remove") comments[FNR] = substr(raw[FNR], length($0) + 1)
@@ -259,6 +299,7 @@ relay_external_config() {
             } else if ($4 == "{" && $5 ~ /^(req\.ssl_sni|req_ssl_sni|ssl_fc_sni)$/ && $NF == "}") {
                 list = collect_sni(6 + ($6 == "-i"), NF - 1)
                 direct_sni = (list != "")
+                if (entry && action == "remove" && direct_sni) unparsed_switches--
                 remaining = record_routes(list, frontend, $2)
                 if (action == "remove" && remaining != list) {
                     edits[FNR] = route_rule(FNR, $2, $5 ($6 == "-i" ? " -i" : ""), remaining)
@@ -273,6 +314,8 @@ relay_external_config() {
             for (i = 1; i <= count; i++) {
                 key = acl_keys[i]
                 if (unsupported[key]) continue
+                if (action == "remove" && frontend_names[i] == target_frontend &&
+                    (acl_counts[key] || acl_empty_lines[key])) unparsed_switches--
                 modified = 0
                 replacement = ""
                 line = rule_lines[i]
@@ -288,6 +331,10 @@ relay_external_config() {
             if (action == "list") exit
             if (action == "remove") {
                 if (!found) exit 23
+                if (!route_remains && !unparsed_switches && entry_count == 1) {
+                    key = allowlist_key()
+                    if (key != "") remove_allowlist_sni(key)
+                }
                 prefix = substr(target_backend, 1, length(target_backend) - length(domain))
                 if (target_backend == prefix domain && prefix ~ /^exit_([0-9]+_)?$/ &&
                     backend_lines[target_backend] && backend_names[target_backend] == 1 &&
@@ -301,7 +348,12 @@ relay_external_config() {
             if (action == "add") {
                 if (entry_count != 1) exit 21
                 if (found) exit 22
-                acl_after = allowlist_line()
+                key = allowlist_key()
+                if (key != "") {
+                    line = acl_empty_lines[key]
+                    if (line && !acl_counts[key]) edits[line] = indents[line] "acl " allowlist_acl " req.ssl_sni -i " domain
+                    else acl_after = allowlist_line(key)
+                }
                 if (last_sni_switch) route_after = last_sni_switch
                 else if (first_other_switch) route_after = first_other_switch - 1
                 else route_after = entry_end
@@ -319,7 +371,7 @@ relay_external_config() {
                 else if (edits[line] != "") print edits[line] comments[line]
                 if (line == acl_after) {
                     match(raw[line], /^[[:blank:]]*/)
-                    printf "%sacl %s req.ssl_sni -i %s\n", substr(raw[line], 1, RLENGTH), accept_acl, domain
+                    printf "%sacl %s req.ssl_sni -i %s\n", substr(raw[line], 1, RLENGTH), allowlist_acl, domain
                 }
                 if (line == route_after) {
                     printf "%suse_backend %s if { req.ssl_sni -i %s }\n", last_sni_switch ? indents[line] : "    ", backend, domain
