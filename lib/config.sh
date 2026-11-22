@@ -64,6 +64,7 @@ WARP_NATIVE_INSTALLER_URL="https://raw.githubusercontent.com/${WARP_NATIVE_REPO}
 WARP_NATIVE_UNINSTALLER_URL="https://raw.githubusercontent.com/${WARP_NATIVE_REPO}/${WARP_NATIVE_BRANCH}/uninstall.sh"
 
 RELAY_HAPROXY_CONFIG="/etc/haproxy/haproxy.cfg"
+RELAY_NODE_DEFAULT_PORT=443
 RELAY_BANDWIDTH_MAX_MBPS=34359
 RELAY_DIR="$INSTALL_DIR/haproxy"
 RELAY_SERVICE="haproxy-traffic.service"

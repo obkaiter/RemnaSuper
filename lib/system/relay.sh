@@ -8,6 +8,10 @@ valid_relay_domain() {
     [[ ${#domain} -le 253 && "$domain" =~ ^($label\.)+$label$ && "${domain##*.}" =~ [a-z] ]]
 }
 
+valid_relay_port() {
+    [[ "$1" =~ ^[0-9]{1,5}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+
 relay_package_installed() {
     [[ "$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null)" == 'install ok installed' ]]
 }
@@ -63,7 +67,7 @@ EOF
 }
 
 write_relay_proxy_config() {
-    local route domain backend
+    local route kind domain port backend
 
     cat <<'EOF' || return 1
 
@@ -81,7 +85,8 @@ EOF
     if (( $# )); then
         printf '\n    # Разрешённые SNI\n' || return 1
         for route in "$@"; do
-            printf '    acl relay_sni req.ssl_sni -i %s\n' "${route#* }" || return 1
+            read -r _ domain _ <<< "$route"
+            printf '    acl relay_sni req.ssl_sni -i %s\n' "$domain" || return 1
         done
         cat <<'EOF' || return 1
 
@@ -102,33 +107,46 @@ EOF
     if (( $# )); then
         printf '\n    # Маршрутизация\n' || return 1
         for route in "$@"; do
-            domain="${route#* }"
+            read -r kind domain _ <<< "$route"
             backend="exit_$domain"
-            [[ "$route" != 'site '* ]] || backend=relay_site
+            [[ "$kind" != site ]] || backend=relay_site
             printf '    use_backend %s if { req.ssl_sni -i %s }\n' "$backend" "$domain" || return 1
         done
     fi
     printf '\n    # Никакого default_backend\n' || return 1
 
     for route in "$@"; do
-        domain="${route#* }"
-        if [[ "$route" == 'site '* ]]; then
+        read -r kind domain port <<< "$route"
+        if [[ "$kind" == site ]]; then
             printf '\n# Сайт-заглушка — %s\nbackend relay_site\n    mode tcp\n    server nginx %s\n' \
                 "$domain" "$RELAY_SITE_SOCKET" || return 1
         else
-            printf '\n# %s\nbackend exit_%s\n    mode tcp\n    server node %s:443 check inter 10s fall 3 rise 2\n' \
-                "$domain" "$domain" "$domain" || return 1
+            printf '\n# %s\nbackend exit_%s\n    mode tcp\n    server node %s:%s check inter 10s fall 3 rise 2\n' \
+                "$domain" "$domain" "$domain" "$port" || return 1
         fi
     done
 }
 
 read_generated_relay_routes() {
     LC_ALL=C awk '
-        $1 == "frontend" { active = ($2 == "bitwire_entry") }
-        $1 ~ /^(backend|listen|defaults|global)$/ { active = 0 }
+        $1 ~ /^(frontend|backend|listen|defaults|global)$/ {
+            active = ($1 == "frontend" && $2 == "bitwire_entry")
+            backend = ($1 == "backend" ? $2 : "")
+        }
         active && $1 == "use_backend" && $5 == "req.ssl_sni" && $6 == "-i" {
-            if ($2 == "relay_site") print "site", $7
-            else if ($2 == "exit_" $7) print "node", $7
+            domains[++count] = $7
+            backends[count] = $2
+        }
+        backend && $1 == "server" && $2 == "node" {
+            if (match($3, /:[0-9]+$/)) ports[backend] = substr($3, RSTART + 1)
+        }
+        END {
+            for (i = 1; i <= count; i++) {
+                backend = backends[i]
+                domain = domains[i]
+                if (backend == "relay_site") print "site", domain
+                else if (backend == "exit_" domain && backend in ports) print "node", domain, ports[backend]
+            }
         }
     '
 }
@@ -155,9 +173,9 @@ write_relay_routing_section() {
 }
 
 relay_external_config() {
-    local action="$1" domain="${2:-}" target_frontend="${3:-}" target_backend="${4:-}" status=0
+    local action="$1" domain="${2:-}" port="${3:-}" target_frontend="${4:-}" target_backend="${5:-}" status=0
 
-    LC_ALL=C awk -v action="$action" -v domain="$domain" \
+    LC_ALL=C awk -v action="$action" -v domain="$domain" -v port="$port" \
         -v target_frontend="$target_frontend" -v target_backend="$target_backend" '
         function collect_sni(first, last,    i, result) {
             for (i = first; i <= last; i++) {
@@ -170,7 +188,10 @@ relay_external_config() {
             n = split(list, names, " ")
             for (i = 1; i <= n; i++) {
                 key = tolower(names[i]) " " frontend " " backend
-                if (action == "list" && !seen[key]++) print "external", key
+                if (action == "list" && !seen[key]++) {
+                    listed_routes[++route_count] = key
+                    listed_backends[route_count] = backend
+                }
                 if (tolower(names[i]) == domain && frontend == target_frontend) {
                     if (action == "add" || backend == target_backend) {
                         found = 1
@@ -251,17 +272,29 @@ relay_external_config() {
             entry = ($2 == target_frontend && ($1 == "frontend" || (action == "remove" && $1 == "listen")))
             if (entry) { entry_count++; entry_section = section; entry_end = FNR }
             frontend = $1 ~ /^(frontend|listen)$/ && $2 ~ /^[[:alnum:]_.:-]+$/ ? $2 : ""
-            backend_section = $1 == "backend" ? $2 : ""
+            backend_section = ($1 == "backend" || (action == "list" && $1 == "listen")) ? $2 : ""
             if ($1 ~ /^(backend|listen)$/) backend_names[$2]++
             if (backend_section && (action == "add" || (action == "remove" && NF == 2))) backend_lines[$2] = FNR
             next
+        }
+        action == "list" && backend_section && $1 ~ /^(server|server-template)$/ {
+            address = ($1 == "server" ? $3 : $4)
+            if (address ~ /^[[:graph:]]+$/ && !seen_addresses[backend_section, address]++) {
+                addresses[backend_section] = addresses[backend_section] (addresses[backend_section] ? ", " : "") address
+            }
         }
         backend_section && (action == "add" || (action == "remove" && backend_section == target_backend)) &&
             NF && $1 !~ /^#/ {
             backend_directives[backend_section]++
             $1 = $1
             if ($0 == "mode tcp") backend_tcp[backend_section] = FNR
-            if ($0 == "server node " domain ":443 check inter 10s fall 3 rise 2") backend_node[backend_section] = FNR
+            server_port = substr($3, length(domain) + 2)
+            if (server_port ~ /^[0-9]+$/ && length(server_port) <= 5 &&
+                server_port + 0 >= 1 && server_port + 0 <= 65535 &&
+                $0 == "server node " domain ":" server_port " check inter 10s fall 3 rise 2") {
+                backend_node[backend_section] = FNR
+                backend_port[backend_section] = server_port
+            }
         }
         entry && NF == 9 && $1 == "tcp-request" && $2 == "content" &&
             $4 == "if" && $5 == "{" && $6 ~ /^(req\.ssl_hello_type|req_ssl_hello_type)$/ &&
@@ -328,7 +361,13 @@ relay_external_config() {
                 }
                 if (action == "remove" && modified) edits[line] = replacement
             }
-            if (action == "list") exit
+            if (action == "list") {
+                for (i = 1; i <= route_count; i++) {
+                    targets = addresses[listed_backends[i]]
+                    print "external", listed_routes[i] (targets == "" ? "" : " " targets)
+                }
+                exit
+            }
             if (action == "remove") {
                 if (!found) exit 23
                 if (!route_remains && !unparsed_switches && entry_count == 1) {
@@ -360,7 +399,7 @@ relay_external_config() {
                 backend = "exit_" domain
                 for (suffix = 2; backend_names[backend]; suffix++) {
                     if (backend_names[backend] == 1 && backend_directives[backend] == 2 &&
-                        backend_tcp[backend] && backend_node[backend]) break
+                        backend_tcp[backend] && backend_node[backend] && backend_port[backend] == port) break
                     backend = "exit_" suffix "_" domain
                 }
                 backend_line = backend_lines[backend]
@@ -378,7 +417,7 @@ relay_external_config() {
                 }
             }
             if (action == "add" && !backend_names[backend]) {
-                printf "\n# %s\nbackend %s\n    mode tcp\n    server node %s:443 check inter 10s fall 3 rise 2\n", domain, backend, domain
+                printf "\n# %s\nbackend %s\n    mode tcp\n    server node %s:%s check inter 10s fall 3 rise 2\n", domain, backend, domain, port
             }
         }
     ' "$RELAY_HAPROXY_CONFIG" || status=$?
@@ -611,10 +650,14 @@ install_relay_packages() (
 )
 
 change_relay_connection() (
-    local action="$1" domain="$2" frontend="${3:-}" backend="${4:-}"
-    local route mode found=0
+    local action="$1" domain="$2" port="${3:-$RELAY_NODE_DEFAULT_PORT}" frontend="${4:-}" backend="${5:-}"
+    local route route_domain mode found=0
     local -a connections=() updated=()
 
+    if [[ "$action" == add ]]; then
+        valid_relay_port "$port" || return 1
+        port=$(( 10#$port ))
+    fi
     lock_relay && check_command systemctl && read_relay_connections connections mode || return 1
     if [[ "$mode" == external ]]; then
         if [[ -L "$RELAY_HAPROXY_CONFIG" ]]; then
@@ -623,14 +666,14 @@ change_relay_connection() (
         fi
         if [[ "$action" == add ]]; then
             valid_relay_domain "$domain" || return 1
-            commit_relay_config 0 relay_external_config add "$domain" bitwire_entry || return 1
-            success "Добавлено подключение $domain → $domain:443."
+            commit_relay_config 0 relay_external_config add "$domain" "$port" bitwire_entry || return 1
+            success "Добавлено подключение $domain → $domain:$port."
         else
             if [[ -z "$frontend" || -z "$backend" ]]; then
                 error "Режим конфигурации HAProxy изменился. Выберите подключение заново."
                 return 1
             fi
-            commit_relay_config 0 relay_external_config remove "$domain" "$frontend" "$backend" || return 1
+            commit_relay_config 0 relay_external_config remove "$domain" '' "$frontend" "$backend" || return 1
             success "Подключение с SNI $domain удалено."
         fi
         return 0
@@ -640,7 +683,8 @@ change_relay_connection() (
         return 1
     fi
     for route in "${connections[@]}"; do
-        if [[ "${route#* }" == "$domain" ]]; then
+        read -r _ route_domain _ <<< "$route"
+        if [[ "$route_domain" == "$domain" ]]; then
             found=1
         else
             updated+=("$route")
@@ -651,8 +695,8 @@ change_relay_connection() (
             error "Укажите корректный SNI, которого ещё нет в конфигурации."
             return 1
         fi
-        apply_relay_config "$mode" "${connections[@]}" "node $domain" || return 1
-        success "Добавлено подключение $domain → $domain:443."
+        apply_relay_config "$mode" "${connections[@]}" "node $domain $port" || return 1
+        success "Добавлено подключение $domain → $domain:$port."
     else
         if (( ! found )); then
             error "Подключение с SNI $domain уже отсутствует."

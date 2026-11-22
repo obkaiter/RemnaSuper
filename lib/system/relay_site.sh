@@ -146,7 +146,7 @@ install_relay_site() (
     for route in "${connections[@]}"; do
         case "$route" in
             "site $domain") site_routed=1 ;;
-            'site '*|"node $domain")
+            'site '*|"node $domain "*)
                 error "Сайт-заглушка уже настроен для другого домена или SNI $domain занят подключением."
                 return 1
                 ;;
