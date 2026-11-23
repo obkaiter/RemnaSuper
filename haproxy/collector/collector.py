@@ -20,8 +20,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from database import event, open_database, prune_history, read_state, record_poll, set_state
 from haproxy_stats import read_stats
-from reports import (export_month, list_backends, local_time, period, print_backend, print_daily,
-                     print_recent, print_title, print_totals, size, totals)
+from reports import (export_month, last_poll_speed, list_backends, local_time, period, print_backend,
+                     print_daily, print_recent, print_title, print_totals, size)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -225,6 +225,9 @@ def print_status(settings, database=None):
     print(f"Последний успешный опрос: {local_time(state.get('last_poll'), zone)}")
     if 'last_poll' not in state:
         print('Сбор статистики ещё не начинался.')
+    else:
+        speed = last_poll_speed(database, int(state['last_poll']))
+        print(f'Средняя скорость за последний интервал, Мбит/с: {speed}')
     if state.get('current_error'):
         print(f"Текущая ошибка: {state['current_error']}")
     if state.get('last_error'):
@@ -283,7 +286,7 @@ def run_report(args, settings, database):
         if command == 'daily':
             print_daily(database, first, last)
         else:
-            print_totals(totals(database, first, last))
+            print_totals(database, first, last)
 
 
 def main():
