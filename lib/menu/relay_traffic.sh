@@ -25,6 +25,7 @@ show_relay_maintenance_menu() {
     menu_item 7 "Просмотр статистики"
     menu_item 8 "Создать резервную копию SQLite"
     menu_item 9 "Выгрузить статистику за месяц в CSV"
+    menu_item 10 "Отключить рассылку аварийных логов HAProxy в терминалы"
     menu_section "Навигация"
     menu_back_item
 }
@@ -227,7 +228,7 @@ relay_installation_menu() {
         case "$choice" in
             1)
                 run_action "Установить HAProxy и сборщик" \
-                    "При необходимости apt-get скачает и установит HAProxy, Python 3, tzdata и less. Если haproxy.cfg отсутствует, apt-get восстановит штатный файл из пакета HAProxy. Если файлов сборщика нет, скрипт загрузит их из репозитория RemnaSuper. При изменении haproxy.cfg будет создана резервная копия. Скрипт настроит локальный Unix-сокет, предложит option contstats, перечитает HAProxy через reload и включит HAProxy и $RELAY_SERVICE в автозапуск." \
+                    "При необходимости apt-get скачает и установит HAProxy, Python 3, tzdata и less. Если haproxy.cfg отсутствует, apt-get восстановит штатный файл из пакета HAProxy. Если файлов сборщика нет, скрипт загрузит их из репозитория RemnaSuper. При изменении haproxy.cfg будет создана резервная копия. Скрипт настроит локальный Unix-сокет, предложит option contstats, понизит уровень emerg до alert для стандартных направлений в /dev/log, перечитает HAProxy через reload и включит HAProxy и $RELAY_SERVICE в автозапуск." \
                     install_relay_haproxy
                 pause
                 ;;
@@ -260,6 +261,12 @@ relay_maintenance_menu() {
                     run_action "Выгрузка статистики" "CSV за $month будет сохранён в $RELAY_DIR/exports." relay_traffic_command export --month "$month"
                     pause
                 fi
+                ;;
+            10)
+                run_action "Отключить рассылку аварийных логов HAProxy" \
+                    "Сообщения HAProxy уровня emerg для стандартных направлений в /dev/log останутся в журнале с уровнем alert. При стандартном пороге journald эти сообщения перестанут появляться в терминалах. RemnaSuper сохранит резервную копию и проверит haproxy.cfg перед reload. Если конфигурация изменится, а HAProxy остановлен, он запустится и займёт настроенные порты." \
+                    suppress_relay_wall_messages
+                pause
                 ;;
             0) return ;;
         esac

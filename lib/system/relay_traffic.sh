@@ -43,6 +43,51 @@ relay_haproxy_service() (
     systemctl "$action" haproxy
 )
 
+relay_local_syslog_config() {
+    local source="$1" require_target="${2:-0}" status
+
+    check_command awk >&2 || return 1
+    LC_ALL=C awk -v required="$require_target" '
+        $1 ~ /^(global|defaults|frontend|backend|listen|peers|resolvers|userlist|cache|mailers|program|ring|log-forward|log-profile|traces|acme|crt-store|http-errors|fcgi-app)$/ {
+            section = $1
+        }
+        section == "global" && $1 == "log" && $2 == "/dev/log" {
+            directive = $0
+            sub(/[ \t]*(#.*)?$/, "", directive)
+            suffix = substr($0, length(directive) + 1)
+            prefix = directive
+            sub(/^[ \t]+/, "", directive)
+            count = split(directive, fields, /[ \t]+/)
+            if (fields[3] ~ /^[a-z][a-z0-9]*$/) {
+                if (count == 3 || (count == 4 && fields[4] ~ /^(emerg|alert|crit|err|warning|notice|info|debug)$/)) {
+                    if (suffix ~ /^#/) suffix = " " suffix
+                    $0 = prefix (count == 3 ? " debug alert" : " alert") suffix
+                    found = 1
+                } else if (count == 5 && fields[5] == "alert") {
+                    found = 1
+                }
+            }
+        }
+        { print }
+        END { if (required && !found) exit 3 }
+    ' "$source"
+    status=$?
+    if (( status == 3 )); then
+        error "В секции global не найдены стандартные директивы log /dev/log, к которым применима настройка." >&2
+    fi
+    return "$status"
+}
+
+suppress_relay_wall_messages() (
+    lock_relay && check_command systemctl || return 1
+    if [[ ! -f "$RELAY_HAPROXY_CONFIG" || ! -r "$RELAY_HAPROXY_CONFIG" ]]; then
+        error "Конфигурация HAProxy отсутствует или недоступна для чтения: $RELAY_HAPROXY_CONFIG."
+        return 1
+    fi
+    commit_relay_config 0 relay_local_syslog_config "$RELAY_HAPROXY_CONFIG" 1 || return 1
+    success "Для стандартных направлений HAProxy в /dev/log сообщения уровня emerg будут записываться с уровнем alert."
+)
+
 relay_stats_config() {
     local mode="$1" source="$2" socket_path="${3:-}" contstats="${4:-0}" managed_lines="${5:-}"
 
@@ -103,6 +148,11 @@ relay_stats_config() {
             if (mode == "contstats" && (!defaults_count || enabled_defaults < defaults_count || overridden)) exit 1
         }
     ' "$source"
+}
+
+write_relay_install_config() {
+    local socket_path="$1" contstats="$2"
+    relay_local_syslog_config "$RELAY_HAPROXY_CONFIG" | relay_stats_config add - "$socket_path" "$contstats"
 }
 
 wait_relay_stats_socket() {
@@ -223,7 +273,7 @@ install_relay_haproxy() (
             contstats=1
         fi
     fi
-    commit_relay_config 0 relay_stats_config add "$RELAY_HAPROXY_CONFIG" "$socket_path" "$contstats" || return 1
+    commit_relay_config 0 write_relay_install_config "$socket_path" "$contstats" || return 1
     if ! relay_stats_config contstats "$RELAY_HAPROXY_CONFIG"; then
         warn "В некоторых секциях длительные соединения могут учитываться при их закрытии. Проверьте option contstats."
     fi

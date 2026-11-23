@@ -557,7 +557,7 @@ commit_relay_config() (
     fi
     if systemctl is-active --quiet haproxy; then
         was_active=1
-        if [[ ( "$generator" == relay_stats_config && "$1" == add ) ||
+        if [[ "$generator" == write_relay_install_config || "$generator" == relay_local_syslog_config ||
             "$generator" == write_relay_routing_config || "$generator" == relay_external_config ||
             "$generator" == relay_bandwidth_config ]]; then
             previous_worker="$(relay_traffic_command probe --worker 2>/dev/null)" || previous_worker=''
@@ -577,7 +577,7 @@ commit_relay_config() (
     else
         systemctl start haproxy || return 1
     fi
-    if [[ ( "$generator" == relay_stats_config && "$1" == add ) || -n "$previous_worker" ]]; then
+    if [[ "$generator" == write_relay_install_config || -n "$previous_worker" ]]; then
         wait_relay_stats_socket "$previous_worker" || return 1
     elif ! systemctl is-active --quiet haproxy; then
         error "HAProxy не запустился с новой конфигурацией."
