@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <climits>
 #include <csignal>
 #include <cstdlib>
@@ -14,10 +15,21 @@
 #include <string_view>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 
 namespace {
 constexpr size_t queue_limit = 256 * 1024;
+constexpr size_t history_limit = 800;
+
+void append_cell(std::wstring &line, const VTermScreenCell &cell) {
+    if (cell.chars[0] == UINT32_MAX) return;
+    if (!cell.chars[0]) line += L' ';
+    for (const auto c : cell.chars) {
+        if (!c) break;
+        line += static_cast<wchar_t>(c);
+    }
+}
 
 int color_index(VTermColor value, bool foreground) {
     if ((foreground && VTERM_COLOR_IS_DEFAULT_FG(&value)) ||
@@ -165,14 +177,30 @@ void Terminal::present() {
 Pty::Pty() = default;
 
 Pty::~Pty() {
-    close_master();
+    hangup();
     if (child_ > 0) {
-        kill(-child_, SIGHUP);
-        const pid_t result = waitpid(child_, nullptr, WNOHANG);
-        if (result == 0) {
-            kill(-child_, SIGKILL);
-            while (waitpid(child_, nullptr, 0) < 0 && errno == EINTR) {}
+        for (int attempt = 0; attempt < 30; ++attempt) {
+            const pid_t result = waitpid(child_, nullptr, WNOHANG);
+            if (result == child_ || (result < 0 && errno == ECHILD)) return;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
+        kill(-child_, SIGKILL);
+        while (waitpid(child_, nullptr, 0) < 0 && errno == EINTR) {}
+    }
+}
+
+void Pty::hangup() {
+    if (master_ >= 0) {
+        const pid_t foreground = tcgetpgrp(master_);
+        if (foreground > 1 && foreground != getpgrp()) {
+            kill(-foreground, SIGHUP);
+            kill(-foreground, SIGCONT);
+        }
+        close_master();
+    }
+    if (child_ > 1) {
+        kill(-child_, SIGHUP);
+        kill(-child_, SIGCONT);
     }
 }
 
@@ -190,6 +218,8 @@ void Pty::start(const termios &mode, int rows, int cols, char *const argv[], int
     rows_ = rows;
     cols_ = cols;
     pending_.clear();
+    history_.clear();
+    history_offset_ = 0;
     unread_ = false;
     cursor_ = true;
     paste_ = false;
@@ -200,6 +230,7 @@ void Pty::start(const termios &mode, int rows, int cols, char *const argv[], int
     static const VTermScreenCallbacks callbacks = [] {
         VTermScreenCallbacks result{};
         result.settermprop = property;
+        result.sb_pushline = record_line;
         return result;
     }();
     vterm_screen_set_callbacks(screen_, &callbacks, this);
@@ -230,7 +261,11 @@ void Pty::start_shell(const termios &mode, int rows, int cols) {
     if (!shell || shell[0] != '/' || access(shell, X_OK) != 0) shell = "/bin/bash";
     if (geteuid() == 0) {
         const std::string_view name(shell);
-        if (name.substr(0, 5) != "/bin/" && name.substr(0, 9) != "/usr/bin/") shell = "/bin/bash";
+        if ((name.substr(0, 5) != "/bin/" && name.substr(0, 9) != "/usr/bin/") ||
+            name.substr(name.find_last_of('/') + 1).empty() ||
+            name.find('/', name.substr(0, 5) == "/bin/" ? 5 : 9) != std::string_view::npos) {
+            shell = "/bin/bash";
+        }
     }
     char interactive[] = "-i";
     char *const argv[]{const_cast<char *>(shell), interactive, nullptr};
@@ -246,6 +281,24 @@ int Pty::property(VTermProp prop, VTermValue *value, void *context) {
     auto &self = *static_cast<Pty *>(context);
     if (prop == VTERM_PROP_CURSORVISIBLE) self.cursor_ = value->boolean;
     return 1;
+}
+
+int Pty::record_line(int cols, const VTermScreenCell *cells, void *context) {
+    auto &self = *static_cast<Pty *>(context);
+    if (self.history_.size() == history_limit) self.history_.pop_front();
+    try {
+        std::wstring line;
+        for (int col = 0; col < cols; ++col) append_cell(line, cells[col]);
+        self.history_.push_back(std::move(line));
+        if (self.history_offset_) self.history_offset_ = std::min(self.history_.size(), self.history_offset_ + 1);
+    } catch (const std::bad_alloc &) {
+        return 0;
+    }
+    return 1;
+}
+
+void Pty::scroll(int lines) {
+    history_offset_ = std::clamp(static_cast<long>(history_offset_) + lines, 0L, static_cast<long>(history_.size()));
 }
 
 void Pty::flush() {
@@ -293,6 +346,7 @@ void Pty::resize(int rows, int cols) {
 
 void Pty::send(Key key) {
     if (master_ < 0) return;
+    history_offset_ = 0;
     if (key.special && key.value == paste_start) {
         paste_ = true;
         vterm_keyboard_start_paste(vt_.get());
@@ -318,6 +372,20 @@ void Pty::send(Key key) {
 void Pty::draw() {
     wbkgdset(stdscr, ' ');
     werase(stdscr);
+    if (history_offset_) {
+        const auto current = snapshot();
+        const size_t start = history_.size() - history_offset_;
+        int row = 0;
+        for (size_t i = start; row < rows_ && i < history_.size(); ++i) {
+            draw_text(stdscr, row++, 0, cols_, history_[i]);
+        }
+        for (size_t i = 0; row < rows_ && i < current.size(); ++i) {
+            draw_text(stdscr, row++, 0, cols_, wide(current[i]));
+        }
+        curs_set(0);
+        wnoutrefresh(stdscr);
+        return;
+    }
     for (int row = 0; row < rows_; ++row) {
         for (int col = 0; col < cols_; ++col) {
             VTermScreenCell cell{};
@@ -351,12 +419,7 @@ std::vector<std::string> Pty::snapshot() const {
         std::wstring line;
         for (int col = 0; col < cols_; ++col) {
             VTermScreenCell cell{};
-            if (!vterm_screen_get_cell(screen_, {row, col}, &cell) || cell.chars[0] == UINT32_MAX) continue;
-            if (!cell.chars[0]) line += L' ';
-            for (const auto c : cell.chars) {
-                if (!c) break;
-                line += static_cast<wchar_t>(c);
-            }
+            if (vterm_screen_get_cell(screen_, {row, col}, &cell)) append_cell(line, cell);
         }
         while (!line.empty() && line.back() == L' ') line.pop_back();
         if (!line.empty()) lines.push_back(utf8(line));

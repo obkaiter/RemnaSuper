@@ -73,11 +73,11 @@ backup_compose() {
 
 add_remnanode_volume() {
     local volume="$1"
-    local tmp_file
+    local tmp_file original
 
     if awk -v target="$volume" '
         /^services:[[:space:]]*$/ { in_services=1; next }
-        in_services && /^[^[:space:]#][^:]*:/ { in_services=0 }
+        in_services && /^[^[:space:]#][^:]*:/ { in_services=0; in_remnanode=0; in_volumes=0 }
         in_services && /^  remnanode:[[:space:]]*$/ {
             in_remnanode=1
             in_volumes=0
@@ -106,13 +106,20 @@ add_remnanode_volume() {
         return 0
     fi
 
-    tmp_file="$(mktemp)"
+    if [[ -L "$COMPOSE_FILE" ]] || ! tmp_file="$(mktemp "${COMPOSE_FILE}.XXXXXXXX")"; then
+        error "Не удалось подготовить временный Compose-файл."
+        return 1
+    fi
+    if ! original="$(sha256sum -- "$COMPOSE_FILE")"; then
+        rm -f -- "$tmp_file"
+        return 1
+    fi
     awk -v volume_line="      - $volume" '
         /^services:[[:space:]]*$/ { in_services=1 }
-        in_services && /^[^[:space:]#][^:]*:/ && !/^services:/ { in_services=0 }
+        in_services && /^[^[:space:]#][^:]*:/ && !/^services:/ { in_services=0; in_remnanode=0 }
         in_services && /^  remnanode:[[:space:]]*$/ { in_remnanode=1 }
         in_remnanode && /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ && !/^  remnanode:/ { in_remnanode=0 }
-        in_remnanode && /^[[:space:]]*volumes:[[:space:]]*$/ && !added {
+        in_remnanode && /^    volumes:[[:space:]]*$/ && !added {
             print
             print volume_line
             added=1
@@ -124,17 +131,31 @@ add_remnanode_volume() {
                 exit 42
             }
         }
-    ' "$COMPOSE_FILE" > "$tmp_file"
+    ' "$COMPOSE_FILE" > "$tmp_file" || {
+        rm -f -- "$tmp_file"
+        error "Не удалось найти секцию volumes у сервиса remnanode."
+        return 1
+    }
 
-    if [ $? -eq 0 ]; then
-        mv "$tmp_file" "$COMPOSE_FILE"
-        success "Volume добавлен: $volume"
-        return 0
+    if ! (cd -- "$NODE_DIR" && docker compose -f "$tmp_file" config --quiet >/dev/null 2>&1); then
+        rm -f -- "$tmp_file"
+        error "Compose-файл с новым volume не прошёл проверку."
+        return 1
     fi
-
-    rm -f "$tmp_file"
-    error "Не удалось найти секцию volumes у сервиса remnanode."
-    return 1
+    if [[ "$original" != "$(sha256sum -- "$COMPOSE_FILE")" ]]; then
+        rm -f -- "$tmp_file"
+        error "Compose-файл изменился во время подготовки. Повторите действие."
+        return 1
+    fi
+    if ! chown --reference="$COMPOSE_FILE" -- "$tmp_file" ||
+        ! chmod --reference="$COMPOSE_FILE" -- "$tmp_file" ||
+        ! mv -fT -- "$tmp_file" "$COMPOSE_FILE"; then
+        rm -f -- "$tmp_file"
+        error "Не удалось сохранить Compose-файл."
+        return 1
+    fi
+    success "Volume добавлен: $volume"
+    return 0
 }
 
 restart_remnanode_compose() {

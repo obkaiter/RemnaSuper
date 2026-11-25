@@ -25,6 +25,7 @@ jobs:
           - image: ubuntu:24.04
             name: ubuntu-24.04
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     container: ${{ matrix.image }}
     defaults:
       run:
@@ -46,6 +47,7 @@ jobs:
           cmake --install "$RUNNER_TEMP/build" --prefix "$RUNNER_TEMP/tui"
           cp -a lib "$RUNNER_TEMP/tui/"
           cp -a haproxy "$RUNNER_TEMP/tui/"
+          cp VERSION "$RUNNER_TEMP/tui/"
           "$RUNNER_TEMP/tui/bin/remnasuper-tui" --self-test
           test "$("$RUNNER_TEMP/tui/bin/remnasuper-tui" --version)" = "$(cat VERSION)"
       - name: Check Bash and Python
@@ -57,6 +59,20 @@ jobs:
             esac
           done < <(git ls-files -z)
           python3 -m compileall -q haproxy lib
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          inventory = json.loads(Path("tests/fixtures/action-inventory.json").read_text(encoding="utf-8"))
+          registry = json.loads(Path("lib/backend/actions.json").read_text(encoding="utf-8"))
+          expected = {item["id"]: item for item in inventory["actions"]}
+          actual = {item["id"]: item for item in registry["actions"]}
+          assert expected.keys() == actual.keys()
+          assert len(actual) == len(registry["actions"])
+          for key, item in actual.items():
+              assert expected[key]["target"] == (item.get("target") or None), key
+              assert expected[key]["fields"] == [field["id"] for field in item.get("fields", [])], key
+          PY
       - name: Check ShellCheck
         continue-on-error: true
         run: find lib -type f -name '*.sh' -print0 | xargs -0 shellcheck -x RemnaSuper install.sh
@@ -148,7 +164,48 @@ jobs:
           if bash install-tui.sh --local "$GITHUB_WORKSPACE" --expect-version 0.0.0; then exit 1; fi
           test "$(readlink /opt/RemnaSuper-tui/current)" = "$active"
           test "$(rs)" = legacy
+      - name: Check update and rollback
+        if: matrix.name == 'debian-12' && github.event_name == 'push'
+        run: |
+          original="$(readlink /opt/RemnaSuper-tui/current)"
+          bash install-tui.sh --expect-version "$(cat VERSION)"
+          test "$(readlink /opt/RemnaSuper-tui/current)" != "$original"
+          test "$(readlink /opt/RemnaSuper-tui/previous)" = "$original"
+          bash /opt/RemnaSuper-tui/current/install-tui.sh --rollback
+          test "$(readlink /opt/RemnaSuper-tui/current)" = "$original"
+          test "$(rs)" = legacy
+      - name: Capture terminal layouts
+        if: matrix.name == 'debian-12'
+        run: |
+          apt-get install -y --no-install-recommends xvfb xauth xterm x11-utils imagemagick fonts-dejavu-core
+          mkdir -p "$RUNNER_TEMP/screenshots"
+          export TUI_CAPTURE_DIR="$RUNNER_TEMP/screenshots"
+          export TUI_CAPTURE_BINARY="$RUNNER_TEMP/tui/bin/remnasuper-tui"
+          export REMNASUPER_SKIP_UPDATE=1 LC_ALL=C.UTF-8
+          xvfb-run -a -s '-screen 0 1920x1080x24' bash <<'BASH'
+          set -e
+          for size in 60x20 80x24 100x28 160x48 80x24-mono; do
+            term=xterm-256color
+            [[ "$size" != *-mono ]] || term=vt100
+            xterm -geometry "${size%-mono}" -tn "$term" -T "RemnaSuper $size" \
+              -fa 'DejaVu Sans Mono' -fs 11 -e "$TUI_CAPTURE_BINARY" &
+            terminal_pid=$!
+            for attempt in {1..30}; do
+              if xwininfo -name "RemnaSuper $size" >/dev/null 2>&1; then break; fi
+              sleep 0.1
+            done
+            sleep 1
+            import -window "RemnaSuper $size" "$TUI_CAPTURE_DIR/$size.png"
+            kill "$terminal_pid"
+            wait "$terminal_pid" || :
+          done
+          BASH
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: matrix.name == 'debian-12'
+        with:
+          name: remnasuper-tui-terminal
+          path: ${{ runner.temp }}/screenshots
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: remnasuper-tui-${{ matrix.name }}-amd64
-          path: ${{ runner.temp }}/tui/bin/remnasuper-tui
+          path: ${{ runner.temp }}/tui

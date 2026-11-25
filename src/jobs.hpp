@@ -18,7 +18,8 @@ struct ReportTable {
 class Job {
 public:
     Job(const std::filesystem::path &script, const std::string &id, const std::string &action,
-        const Json &parameters, bool can_cancel, const termios &mode, int rows, int cols, bool interactive);
+        const Json &parameters, bool can_cancel, const termios &mode, int rows, int cols, bool interactive,
+        bool retain_terminal);
     ~Job();
     Job(const Job &) = delete;
     Job &operator=(const Job &) = delete;
@@ -34,6 +35,7 @@ public:
     const Json &data() const { return data_; }
     const std::vector<ReportTable> &tables() const { return tables_; }
     const std::string &report_text() const { return report_text_; }
+    const std::string &selection() const { return selection_; }
     Pty *terminal() const { return terminal_.get(); }
 private:
     void append(std::string line);
@@ -51,6 +53,7 @@ private:
     bool running_ = true;
     bool protocol_error_ = false;
     bool received_result_ = false;
+    bool retain_terminal_;
     std::string status_ = "Выполняется";
     std::deque<std::string> lines_;
     std::string pending_events_;
@@ -59,6 +62,7 @@ private:
     std::unique_ptr<Pty> terminal_;
     std::vector<ReportTable> tables_;
     std::string report_text_;
+    std::string selection_;
     Json prompt_;
     Json data_;
 };

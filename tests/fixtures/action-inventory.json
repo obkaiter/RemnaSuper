@@ -654,8 +654,12 @@
       "section": "Psiphon",
       "target": "tui_psiphon_instances",
       "risk": "read_only",
-      "arguments": [],
-      "fields": [],
+      "arguments": [
+        "@preference"
+      ],
+      "fields": [
+        "preference"
+      ],
       "prompt": "Обнаруженные экземпляры 1–99 и отличия неполной установки",
       "verification": "VM acceptance pending"
     },

@@ -87,6 +87,7 @@ struct Dialog {
     bool edit_lines = false;
     bool reveal = false;
     std::string hidden;
+    std::wstring choice_filter;
 };
 
 struct Action {
@@ -101,9 +102,13 @@ std::vector<Action> load_actions(const std::filesystem::path &root) {
     if (registry.at("v") != 1) throw std::runtime_error("Неизвестная версия каталога действий.");
     std::vector<Action> actions;
     for (const Json &item : registry.at("actions")) {
+        auto fields = Json::array();
+        for (const auto &field : item.value("fields", Json::array())) {
+            if (!field.value("internal", false)) fields.push_back(field);
+        }
         actions.push_back({item.at("id"), item.at("title"), item.at("summary"), item.at("section"),
                            item.at("risk"), item.value("execution", "task"), item.value("cancel", false),
-                           item.value("fields", Json::array()), item.value("resources", Json::array())});
+                           std::move(fields), item.value("resources", Json::array())});
     }
     return actions;
 }
@@ -139,6 +144,7 @@ public:
             const auto *check = find_action("update.check");
             if (check) startup_ = make_job(*check, Json::object());
         }
+        if (!demo_) refresh_overview();
         while (!done_) {
             if (stopping) {
                 if (!shutting_down_) {
@@ -146,7 +152,9 @@ public:
                     for (const auto &entry : jobs_) {
                         if (!entry.job->prompt().is_null()) entry.job->answer(false, "");
                         if (entry.job->can_cancel()) entry.job->cancel();
+                        else if (entry.job->running() && entry.job->terminal()) entry.job->terminal()->hangup();
                     }
+                    if (overview_) overview_->cancel();
                 }
                 if (!active_jobs()) break;
             }
@@ -159,8 +167,14 @@ public:
                 }
             }
             for (const auto &entry : jobs_) {
-                if (entry.job->pump()) dirty = true;
+                if (entry.job->pump()) {
+                    dirty = true;
+                    if (!entry.job->running() && !entry.job->selection().empty() && entry.job->status() == "Завершено") {
+                        psiphon_instance_ = entry.job->selection();
+                    }
+                }
             }
+            if (overview_ && overview_->pump()) dirty = true;
             if (startup_ && startup_->pump() && !startup_->running()) {
                 const auto &data = startup_->data();
                 const std::string available = data.is_object() ? data.value("available", "") : "";
@@ -223,6 +237,7 @@ public:
             std::vector<pollfd> descriptors{{STDIN_FILENO, POLLIN, 0}};
             if (shell_.fd() >= 0) descriptors.push_back({shell_.fd(), shell_.poll_events(), 0});
             if (startup_) startup_->poll_descriptors(descriptors);
+            if (overview_) overview_->poll_descriptors(descriptors);
             for (const auto &entry : jobs_) entry.job->poll_descriptors(descriptors);
             const int polled = poll(descriptors.data(), descriptors.size(), dirty ? 20 : 100);
             if (polled < 0 && errno != EINTR) throw std::runtime_error("Ошибка опроса терминала.");
@@ -276,6 +291,11 @@ private:
         top_ = 0;
     }
 
+    void refresh_overview() {
+        if (overview_ && overview_->running()) return;
+        if (const auto *status = find_action("system.status")) overview_ = make_job(*status, Json::object());
+    }
+
     void move_row(int offset, size_t count, size_t &selected) {
         if (count) selected = std::clamp(static_cast<long>(selected) + offset, 0L, static_cast<long>(count - 1));
     }
@@ -310,6 +330,7 @@ private:
             return;
         }
         params_ = Json::object();
+        if (action_->id == "psiphon.instances") params_["preference"] = psiphon_instance_;
         field_ = 0;
         next_field();
     }
@@ -317,8 +338,9 @@ private:
     void next_field() {
         if (field_ < action_->fields.size()) {
             const auto &field = action_->fields.at(field_);
+            const std::string initial = field.at("id") == "instance" ? psiphon_instance_ : field.value("default", "");
             open({action_->title, field.at("label"), true, false, true, field.value("secret", false),
-                  wide(field.value("default", ""))}, Purpose::field);
+                  wide(initial)}, Purpose::field);
         } else if (action_->risk != "read_only") {
             std::string detail = action_->summary;
             for (const auto &field : action_->fields) {
@@ -339,7 +361,8 @@ private:
 
     std::unique_ptr<Job> make_job(const Action &action, const Json &params) {
         return std::make_unique<Job>(root_ / "lib/backend/dispatch.py", std::to_string(++sequence_), action.id, params,
-            action.cancel, terminal_.original_mode(), LINES, COLS, action.execution == "terminal");
+            action.cancel, terminal_.original_mode(), LINES, COLS, action.execution == "terminal",
+            action.risk == "read_only" || action.risk == "external_read");
     }
 
     void launch(const Action &action, const Json &params) {
@@ -389,7 +412,8 @@ private:
 
     void edit_dialog(Key key) {
         auto &d = *dialog_;
-        if (escape(key)) return close_dialog(false);
+        if (escape(key) && !d.choice_filter.empty()) { d.choice_filter.clear(); return; }
+        if (escape(key) || (!key.special && key.value == 3)) return close_dialog(false);
         if (d.reveal) {
             if (enter(key) && !d.hidden.empty()) {
                 d.description = std::move(d.hidden);
@@ -399,9 +423,22 @@ private:
             return;
         }
         if (!d.choices.empty()) {
+            const auto previous = d.choice_filter;
+            if (!key.special && iswprint(key.value) && d.choice_filter.size() < 96) d.choice_filter += towlower(key.value);
+            else if (((key.special && key.value == KEY_BACKSPACE) ||
+                      (!key.special && (key.value == 127 || key.value == 8))) && !d.choice_filter.empty()) {
+                d.choice_filter.pop_back();
+            }
+            const auto matches = matching_choices(d);
+            if (matches.empty()) return;
+            const auto selected = std::find(matches.begin(), matches.end(), d.selected);
+            size_t row = selected == matches.end() || previous != d.choice_filter ? 0 : selected - matches.begin();
+            if (key.special && key.value == KEY_UP) move_row(-1, matches.size(), row);
+            if (key.special && key.value == KEY_DOWN) move_row(1, matches.size(), row);
+            if (key.special && key.value == KEY_PPAGE) move_row(-10, matches.size(), row);
+            if (key.special && key.value == KEY_NPAGE) move_row(10, matches.size(), row);
+            d.selected = matches[row];
             if (enter(key)) return close_dialog(true);
-            if (key.special && key.value == KEY_UP) move_row(-1, d.choices.size(), d.selected);
-            if (key.special && key.value == KEY_DOWN) move_row(1, d.choices.size(), d.selected);
             return;
         }
         if (enter(key) && d.edit_lines) {
@@ -434,6 +471,17 @@ private:
         }
     }
 
+    std::vector<size_t> matching_choices(const Dialog &d) const {
+        std::vector<size_t> matches;
+        for (size_t i = 0; i < d.choices.size(); ++i) {
+            if (d.choice_filter.empty() ||
+                lower(wide(d.choices[i].at("label").get<std::string>())).find(d.choice_filter) != std::wstring::npos) {
+                matches.push_back(i);
+            }
+        }
+        return matches;
+    }
+
     void handle(Key key) {
         if (key.special && key.value == KEY_RESIZE) {
             shell_.resize(LINES, COLS);
@@ -458,6 +506,11 @@ private:
         }
         if (pty) {
             if (literal_prefix_) {
+                if (key.special && (key.value == KEY_PPAGE || key.value == KEY_NPAGE)) {
+                    pty->scroll(key.value == KEY_PPAGE ? std::max(1, LINES - 2) : -std::max(1, LINES - 2));
+                    literal_prefix_.reset();
+                    return;
+                }
                 if (external_ && !shell_visible_ && !key.special && key.value == 29) {
                     external_ = nullptr;
                     literal_prefix_.reset();
@@ -544,6 +597,7 @@ private:
         if (key.special && key.value == KEY_F(9)) { section_focus_ = !section_focus_; return; }
         if (key.special && key.value == KEY_F(5)) { const size_t selection = selected_; rebuild();
             if (!visible_.empty()) selected_ = std::min(selection, visible_.size() - 1);
+            if (sections_[section_] == "Система") refresh_overview();
             return;
         }
         if ((!key.special && key.value == '\t') || (key.special &&
@@ -592,14 +646,18 @@ private:
                   d.description, d.offset);
         if (!d.choices.empty()) {
             const size_t room = height - 6;
-            const size_t start = d.selected >= room ? d.selected - room + 1 : 0;
-            for (size_t i = start; i < start + room && i < d.choices.size(); ++i) {
-                if (i == d.selected) wattron(win.get(), A_REVERSE);
+            const auto matches = matching_choices(d);
+            const auto selected = std::find(matches.begin(), matches.end(), d.selected);
+            const size_t row = selected == matches.end() ? 0 : selected - matches.begin();
+            const size_t start = row >= room ? row - room + 1 : 0;
+            for (size_t i = start; i < start + room && i < matches.size(); ++i) {
+                if (matches[i] == d.selected) wattron(win.get(), A_REVERSE);
                 draw_text(win.get(), 4 + static_cast<int>(i - start), 2, width - 4,
-                          wide(d.choices[i].at("label").get<std::string>()));
+                          wide(d.choices[matches[i]].at("label").get<std::string>()));
                 wattroff(win.get(), A_REVERSE);
             }
-            draw_text(win.get(), height - 2, 2, width - 4, L"Enter — выбрать · Esc — отменить");
+            draw_text(win.get(), height - 2, 2, width - 4, d.choice_filter.empty() ?
+                      L"Enter — выбрать · Ввод текста — поиск" : L"Поиск: " + d.choice_filter);
         } else if (d.edit_lines) {
             const auto before = wrap(utf8(d.value.substr(0, d.cursor)), width - 6);
             const int room = height - 6;
@@ -801,7 +859,17 @@ private:
         draw_text(detail.get(), 0, 2, width, L" О действии ");
         if (!visible_.empty()) {
             const auto &action = *visible_[selected_];
-            paragraph(detail.get(), 2, 2, width, room - 2, action.summary);
+            draw_text(detail.get(), 2, 2, width, wide(action.title));
+            int y = 4;
+            if (sections_[section_] == "Система" && overview_) {
+                for (const auto &line : overview_->lines()) {
+                    if (y >= room - 4) break;
+                    if (line.find(".service") != std::string::npos) draw_text(detail.get(), y++, 2, width, wide(line));
+                }
+                if (y == 4) draw_text(detail.get(), y++, 2, width, L"Не проверено");
+                ++y;
+            }
+            paragraph(detail.get(), y, 2, width, room - y, action.summary);
         }
         wnoutrefresh(detail.get());
     }
@@ -823,10 +891,18 @@ private:
             wattron(stdscr, theme(2, A_REVERSE) | A_BOLD);
             mvwhline(stdscr, 0, 0, ' ', COLS);
             draw_text(stdscr, 0, 1, COLS - 2, wide(std::string(demo_ ? "DEMO · " : "") +
-                      "RemnaSuper " REMNASUPER_VERSION " · " + host_ + " · Задачи: " + std::to_string(active_jobs())));
+                      "RemnaSuper " REMNASUPER_VERSION " · " + host_ +
+                      (demo_ ? "" : " · root") + " · Задачи: " + std::to_string(active_jobs())));
             wattroff(stdscr, theme(2, A_REVERSE) | A_BOLD);
-            int x = 1;
-            for (size_t i = section_focus_ ? section_ : 0; i < sections_.size() && x < COLS - 2; ++i) {
+            int x = 1, span = 0;
+            size_t first = section_;
+            for (size_t i = section_ + 1; i > 0; --i) {
+                const auto label = wide(sections_[i - 1]);
+                span += 2 + std::max(0, wcswidth(label.c_str(), label.size()));
+                if (span > COLS - 4) break;
+                first = i - 1;
+            }
+            for (size_t i = first; i < sections_.size() && x < COLS - 2; ++i) {
                 const auto label = L" " + wide(sections_[i]) + L" ";
                 if (i == section_) wattron(stdscr, theme(2, A_REVERSE));
                 draw_text(stdscr, 1, x, COLS - x - 1, label);
@@ -836,6 +912,7 @@ private:
             std::string status = notice_.empty() ? "Ctrl+O — консоль · F9 — разделы" : notice_;
             if (installed_) status = "Обновление установлено. Перезапуск после закрытия оболочки и заданий.";
             if (!filter_.empty()) status += " · Фильтр: " + utf8(filter_);
+            if (sections_[section_] == "Psiphon") status += " · Подключение №" + psiphon_instance_;
             if (shell_.unread()) status += " · Есть вывод оболочки";
             draw_text(stdscr, LINES - 2, 1, COLS - 2, wide(status));
             wattron(stdscr, theme(2, A_REVERSE));
@@ -862,6 +939,7 @@ private:
     std::vector<const Action *> visible_;
     std::vector<Entry> jobs_;
     std::unique_ptr<Job> startup_;
+    std::unique_ptr<Job> overview_;
     std::unique_ptr<Dialog> dialog_;
     Purpose purpose_ = Purpose::help;
     std::optional<Clock::time_point> literal_prefix_;
@@ -872,6 +950,7 @@ private:
     std::wstring filter_;
     std::wstring job_filter_;
     std::string notice_;
+    std::string psiphon_instance_ = "1";
     size_t section_ = 0, selected_ = 0, top_ = 0, job_row_ = 0, job_offset_ = 0, field_ = 0;
     unsigned sequence_ = 0;
     int job_column_ = 0;
@@ -905,7 +984,15 @@ int main(int argc, char **argv) {
         const auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path();
         auto actions = load_actions(root);
         if (self_test) {
-            if (actions.empty() || !std::filesystem::is_regular_file(root / "lib/backend/dispatch.py")) return 1;
+            if (actions.empty()) return 1;
+            for (const auto *file : {"lib/backend/dispatch.py", "lib/backend/tui_protocol.py", "lib/backend/bridge.sh",
+                 "lib/backend/adapters.sh", "lib/backend/logs.sh", "lib/backend/update-tui.sh",
+                 "lib/config.sh", "lib/system/network_diagnostics/agent.py", "haproxy/collector/collector.py"}) {
+                if (!std::filesystem::is_regular_file(root / file)) {
+                    fprintf(stderr, "Отсутствует обязательный файл: %s\n", file);
+                    return 1;
+                }
+            }
             return 0;
         }
         if (!demo && geteuid() != 0) throw std::runtime_error("Запустите приложение через sudo rs-tui.");

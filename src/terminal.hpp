@@ -4,6 +4,7 @@
 #include <vterm.h>
 
 #include <memory>
+#include <deque>
 #include <string>
 #include <termios.h>
 #include <vector>
@@ -45,6 +46,7 @@ public:
     void resize(int rows, int cols);
     bool pump();
     void send(Key key);
+    void hangup();
     void draw();
     bool active() const { return child_ > 0 || master_ >= 0; }
     bool unread() const { return unread_; }
@@ -53,9 +55,11 @@ public:
     short poll_events() const;
     int status() const { return status_; }
     std::vector<std::string> snapshot() const;
+    void scroll(int lines);
 private:
     static void queue(const char *bytes, size_t size, void *context);
     static int property(VTermProp prop, VTermValue *value, void *context);
+    static int record_line(int cols, const VTermScreenCell *cells, void *context);
     void close_master();
     void flush();
     pid_t child_ = -1;
@@ -67,6 +71,8 @@ private:
     bool cursor_ = true;
     bool paste_ = false;
     std::string pending_;
+    std::deque<std::wstring> history_;
+    size_t history_offset_ = 0;
     std::unique_ptr<VTerm, decltype(&vterm_free)> vt_{nullptr, vterm_free};
     VTermScreen *screen_ = nullptr;
 };

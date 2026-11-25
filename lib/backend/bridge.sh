@@ -22,7 +22,7 @@ info() { tui_event log "$1"; }
 step() { tui_event step "$1"; }
 success() { tui_event log "$1"; }
 warn() { tui_event warning "$1"; }
-error() { printf E >&"$TUI_OUTCOME"; tui_event error "$1"; }
+error() { printf E >&"$TUI_OUTCOME"; tui_event error "$1"; return 1; }
 header() { tui_event step "$1"; }
 section() { tui_event step "$1"; }
 divider() { :; }

@@ -14,6 +14,27 @@ reboot_vps() {
     return 1
 }
 
+run_downloaded_bash() (
+    local script_url="$1" script_name="$2" work_dir script_path
+    shift 2
+    check_command curl && check_command bash && check_command mktemp || return 1
+    work_dir="$(mktemp -d)" || return 1
+    script_path="$work_dir/$script_name"
+    trap 'rm -rf -- "$work_dir"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    if ! curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 \
+        --max-filesize 8388608 --output "$script_path" "$script_url"; then
+        error "Не удалось скачать $script_name."
+        return 1
+    fi
+    if [[ ! -s "$script_path" ]] || ! bash -n "$script_path"; then
+        error "Скрипт $script_name не прошёл проверку."
+        return 1
+    fi
+    bash "$script_path" "$@"
+)
+
 initial_setup() {
     header "Первоначальная настройка"
     check_command apt-get || { pause; return; }
@@ -91,7 +112,7 @@ install_remnawave_reverse_proxy() {
     check_command bash || { pause; return; }
 
     step "Запуск install_remnawave.sh..."
-    if bash <(curl -Ls https://raw.githubusercontent.com/eGamesAPI/remnawave-reverse-proxy/refs/heads/main/install_remnawave.sh); then
+    if run_downloaded_bash "https://raw.githubusercontent.com/eGamesAPI/remnawave-reverse-proxy/refs/heads/main/install_remnawave.sh" install_remnawave.sh; then
         success "remnawave-reverse-proxy установлен."
     else
         error "Установка remnawave-reverse-proxy завершилась с ошибкой."
@@ -107,7 +128,7 @@ install_rkn_guard() {
     check_command bash || { pause; return; }
 
     step "Запуск установщика rkn-guard..."
-    if curl -fsSL https://raw.githubusercontent.com/Flecksis/rkn-guard/master/install.sh | sudo bash -s -- install; then
+    if run_downloaded_bash "https://raw.githubusercontent.com/Flecksis/rkn-guard/master/install.sh" rkn-guard.sh install; then
         success "rkn-guard установлен."
     else
         error "Установка rkn-guard завершилась с ошибкой."
@@ -117,31 +138,28 @@ install_rkn_guard() {
 }
 
 run_ipregion() {
-    check_command wget || { pause; return; }
-    check_command bash || { pause; return; }
-
-    if ! bash <(wget -qO- https://github.com/Davoyan/ipregion/raw/main/ipregion.sh); then
+    if ! run_downloaded_bash "https://github.com/Davoyan/ipregion/raw/main/ipregion.sh" ipregion.sh; then
         error "ipregion завершился с ошибкой."
+        pause
+        return 1
     fi
     pause
 }
 
 run_ip_check_place() {
-    check_command curl || { pause; return; }
-    check_command bash || { pause; return; }
-
-    if ! bash <(curl -Ls https://IP.Check.Place) -l en; then
+    if ! run_downloaded_bash "https://IP.Check.Place" ip-check-place.sh -l en; then
         error "IP Check Place завершился с ошибкой."
+        pause
+        return 1
     fi
     pause
 }
 
 run_bench() {
-    check_command curl || { pause; return; }
-    check_command bash || { pause; return; }
-
-    if ! bash <(curl -Ls https://bench.sh); then
+    if ! run_downloaded_bash "https://bench.sh" bench.sh; then
         error "bench.sh завершился с ошибкой."
+        pause
+        return 1
     fi
     pause
 }

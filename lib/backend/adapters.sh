@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 
 tui_unit_state() {
-    local unit="$1" load_state active_state
-    if ! load_state="$(systemctl show --property=LoadState --value "$unit")" ||
-       ! active_state="$(systemctl show --property=ActiveState --value "$unit")"; then
+    local unit="$1" state
+    if ! state="$(timeout 3 systemctl show --property=LoadState --property=ActiveState "$unit")"; then
         printf '%s\n' 'Неизвестно: systemd недоступен'
-    elif [[ "$load_state" == not-found ]]; then
+    elif grep -qx 'LoadState=not-found' <<< "$state"; then
         printf '%s\n' '[--] Не установлен'
-    elif [[ -n "$active_state" ]]; then
-        printf '%s\n' "$active_state"
     else
-        printf '%s\n' 'Неизвестно'
+        case "$state" in
+            *ActiveState=active*) printf '%s\n' '[OK] Работает' ;;
+            *ActiveState=failed*) printf '%s\n' '[X] Ошибка' ;;
+            *ActiveState=inactive*) printf '%s\n' '[--] Остановлен' ;;
+            *ActiveState=activating*) printf '%s\n' '[!] Запускается' ;;
+            *) printf '%s\n' 'Неизвестно' ;;
+        esac
     fi
 }
 
@@ -48,18 +51,22 @@ tui_psiphon() {
 }
 
 tui_psiphon_instances() (
-    local instance
-    local -a instances
+    local preference="$1" instance state chosen
+    local -a instances choices=()
     mapfile -t instances < <(list_psiphon_instances)
     (( ${#instances[@]} )) || { info "Подключений Psiphon пока нет."; return 0; }
     for instance in "${instances[@]}"; do
         set_psiphon_instance "$instance" || continue
         if [[ -x "$PSIPHON_CLI" ]]; then
-            printf '№%s  %s  %s\n' "$instance" "$PSIPHON_SERVICE" "$(tui_unit_state "$PSIPHON_SERVICE")"
+            state="$(tui_unit_state "$PSIPHON_SERVICE")"
         else
-            printf '№%s  %s  Неполная установка\n' "$instance" "$PSIPHON_SERVICE"
+            state="Неполная установка"
         fi
+        choices+=("$instance" "№$instance · $PSIPHON_SERVICE · $state")
     done
+    tui_choose chosen "Найденные подключения Psiphon" "$preference" "${choices[@]}" || return "$?"
+    psiphon_instance_exists "$chosen" || { error "Подключение исчезло. Обновите список."; return 1; }
+    tui_event selection "$chosen"
 )
 
 tui_psiphon_add() {
@@ -73,7 +80,8 @@ tui_psiphon_add() {
     fi
     confirm "Установить Psiphon №$PSIPHON_INSTANCE из Chara-Freedom/vps-psiphon с параметром --no-http?" ||
         return 130
-    install_psiphon
+    install_psiphon || return "$?"
+    if psiphon_instance_exists "$PSIPHON_INSTANCE"; then tui_event selection "$PSIPHON_INSTANCE"; fi
 }
 
 tui_warp_status() {

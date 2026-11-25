@@ -104,9 +104,11 @@ std::string display_output(const std::string &line) {
 }
 
 Job::Job(const std::filesystem::path &script, const std::string &id, const std::string &action,
-         const Json &parameters, bool can_cancel, const termios &mode, int rows, int cols, bool interactive)
+         const Json &parameters, bool can_cancel, const termios &mode, int rows, int cols, bool interactive,
+         bool retain_terminal)
     : id_(id), cancel_signal_(can_cancel ?
-          (action == "diag.pair" || action == "setup.configure.ssh.key.login" ? SIGINT : SIGTERM) : 0) {
+          (action == "diag.pair" || action == "setup.configure.ssh.key.login" ? SIGINT : SIGTERM) : 0),
+      retain_terminal_(retain_terminal) {
     Pipe request, events(true), output(true), errors(true);
     fcntl(request.writer(), F_SETFL, O_NONBLOCK);
     if (!put(request.writer(), {{"v", 1}, {"job_id", id}, {"action_id", action}, {"params", parameters}})) {
@@ -215,6 +217,8 @@ void Job::consume_events(const std::string &bytes) {
                 else throw std::runtime_error("неизвестный результат");
                 data_ = event.value("data", Json{});
                 append(status_ + " · код " + std::to_string(code));
+            } else if (type == "selection") {
+                selection_ = event.at("message").get<std::string>();
             } else if (type == "report_text") {
                 if (report_text_.size() < 32768) report_text_ += event.at("message").get<std::string>() + "\n";
             } else if (type == "report_header") {
@@ -263,7 +267,7 @@ bool Job::pump() {
     close_fd(request_);
     running_ = false;
     prompt_ = nullptr;
-    if (terminal_) {
+    if (terminal_ && retain_terminal_) {
         for (auto &line : terminal_->snapshot()) append(std::move(line));
     }
     if (!pending_output_.empty()) append(pending_output_);

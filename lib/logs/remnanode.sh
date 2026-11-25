@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 fix_logs() {
+    local compose_backup restore configured_hash
+
     header "Исправить логи (access.log, xray.out.log)"
     check_docker || { pause; return; }
 
@@ -11,25 +13,48 @@ fix_logs() {
         return
     fi
 
-    if ! backup_compose; then
+    if ! backup_compose compose_backup; then
         error "Не удалось создать резервную копию docker-compose.yml."
         pause
         return
     fi
 
     info "Создание директории: $LOG_DIR"
-    mkdir -p "$LOG_DIR"
-    chmod 755 "$LOG_DIR"
-    touch "$LOG_DIR/access.log" "$LOG_DIR/error.log"
-    chmod 644 "$LOG_DIR"/*.log
+    if ! mkdir -p -- "$LOG_DIR" || ! chmod 755 -- "$LOG_DIR" ||
+        ! touch -- "$LOG_DIR/access.log" "$LOG_DIR/error.log" ||
+        ! chmod 644 -- "$LOG_DIR/access.log" "$LOG_DIR/error.log"; then
+        error "Не удалось подготовить файлы логов."
+        return 1
+    fi
     success "Директория готова."
 
-    add_remnanode_volume "/var/log/remnanode:/var/log/remnanode:rw" || { pause; return; }
+    add_remnanode_volume "$LOG_DIR:$LOG_DIR:rw" || { pause; return 1; }
+    configured_hash="$(sha256sum -- "$COMPOSE_FILE")" || return 1
 
     info "Перезапуск сервисов..."
-    restart_remnanode_compose
+    if ! restart_remnanode_compose; then
+        if [[ "$configured_hash" != "$(sha256sum -- "$COMPOSE_FILE")" ]]; then
+            error "Compose-файл изменился во время перезапуска. Проверьте состояние ноды. Резервная копия: $compose_backup"
+            return 76
+        fi
+        restore="$(mktemp "${COMPOSE_FILE}.restore.XXXXXXXX")" || return 1
+        if ! cp -p -- "$compose_backup" "$restore" || ! mv -fT -- "$restore" "$COMPOSE_FILE"; then
+            rm -f -- "$restore"
+            error "Не удалось вернуть прежний Compose-файл. Резервная копия: $compose_backup"
+            return 76
+        fi
+        if ! (cd -- "$NODE_DIR" && docker compose up -d >/dev/null 2>&1); then
+            error "Compose-файл восстановлен. Повторный запуск контейнеров не удался."
+            return 76
+        fi
+        warn "Прежний Compose-файл восстановлен."
+        return 1
+    fi
     if [ -d "$AGENT_DIR" ]; then
-        (cd "$AGENT_DIR" && docker compose restart >/dev/null 2>&1)
+        if ! (cd -- "$AGENT_DIR" && docker compose restart >/dev/null 2>&1); then
+            error "Нода перезапущена, перезапустить агент не удалось."
+            return 75
+        fi
     fi
     success "Сервисы перезапущены."
 

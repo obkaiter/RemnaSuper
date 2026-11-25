@@ -8,7 +8,8 @@
       "summary": "Локальное состояние RemnaNode, агента, HAProxy, UFW и SSH.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "tui_status"
+      "target": "tui_status",
+      "cancel": true
     },
     {
       "id": "update.check",
@@ -583,11 +584,22 @@
     {
       "id": "psiphon.instances",
       "section": "Psiphon",
-      "title": "Подключения Psiphon",
-      "summary": "Показать существующие экземпляры и локальное состояние службы.",
+      "title": "Выбрать подключение Psiphon",
+      "summary": "Выбрать существующий экземпляр и проверить локальное состояние службы.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "tui_psiphon_instances"
+      "target": "tui_psiphon_instances",
+      "fields": [
+        {
+          "id": "preference",
+          "label": "Выбранное подключение",
+          "pattern": "[1-9][0-9]?",
+          "internal": true
+        }
+      ],
+      "args": [
+        "@preference"
+      ]
     },
     {
       "id": "psiphon.add",

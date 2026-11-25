@@ -117,7 +117,7 @@ def run():
             reported_error = bool(outcome.read(1))
         code = 128 - code if code < 0 else code
         status = ("cancelled" if code == 130 else "rollback_failed" if code == 76 else
-                  "failed" if code else "partial" if reported_error else "ok")
+                  "partial" if code == 75 or (code == 0 and reported_error) else "failed" if code else "ok")
     except BlockingIOError:
         emit(job, "error", message="Другая копия интерфейса выполняет изменение настроек.")
         code, status = 1, "failed"

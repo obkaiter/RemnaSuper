@@ -6,7 +6,7 @@ run_node_precheck() {
     check_command curl || { pause; return; }
     check_command bash || { pause; return; }
 
-    if bash <(curl -fsSL --max-time 30 "$NODE_PRECHECK_URL"); then
+    if run_downloaded_bash "$NODE_PRECHECK_URL" node-precheck.sh; then
         run_status=0
     else
         run_status=$?
