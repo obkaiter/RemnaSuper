@@ -193,8 +193,16 @@ tui_relay_backend() {
     local list item selected
     local -a choices=()
     list="$(relay_traffic_command backends --names)" || return 1
-    [[ -n "$list" ]] || { info "Сборщик ещё не обнаружил ни одного backend."; return 0; }
+    [[ -n "$list" ]] || { tui_relay_report backends; return "$?"; }
     while IFS= read -r item; do choices+=("$item" "$item"); done <<< "$list"
     tui_choose selected "Выберите backend" '' "${choices[@]}" || return "$?"
-    relay_traffic_command backend -- "$selected"
+    tui_relay_report backend -- "$selected"
+}
+
+tui_relay_report() {
+    if [[ ! -f "$RELAY_DIR/config/config.json" ]]; then
+        error "Сборщик ещё не настроен."
+        return 1
+    fi
+    /usr/bin/python3 -B "$APP_DIR/haproxy/collector/collector.py" --format json --data-root "$RELAY_DIR" "$@"
 }

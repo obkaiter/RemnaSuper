@@ -21,7 +21,8 @@
       "args": [
         "--check"
       ],
-      "kind": "update"
+      "kind": "update",
+      "cancel": true
     },
     {
       "id": "update.apply",
@@ -456,10 +457,11 @@
       "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "relay_traffic_command",
+      "target": "tui_relay_report",
       "args": [
         "today"
-      ]
+      ],
+      "kind": "report"
     },
     {
       "id": "relay.traffic.yesterday",
@@ -468,10 +470,11 @@
       "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "relay_traffic_command",
+      "target": "tui_relay_report",
       "args": [
         "yesterday"
-      ]
+      ],
+      "kind": "report"
     },
     {
       "id": "relay.traffic.month",
@@ -480,7 +483,7 @@
       "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "relay_traffic_command",
+      "target": "tui_relay_report",
       "args": [
         "month",
         "@month"
@@ -491,7 +494,8 @@
           "label": "Месяц в формате ГГГГ-ММ",
           "pattern": "(?!0000)[0-9]{4}-(0[1-9]|1[0-2])"
         }
-      ]
+      ],
+      "kind": "report"
     },
     {
       "id": "relay.traffic.daily",
@@ -500,7 +504,7 @@
       "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "relay_traffic_command",
+      "target": "tui_relay_report",
       "args": [
         "daily",
         "@month"
@@ -511,7 +515,8 @@
           "label": "Месяц в формате ГГГГ-ММ",
           "pattern": "(?!0000)[0-9]{4}-(0[1-9]|1[0-2])"
         }
-      ]
+      ],
+      "kind": "report"
     },
     {
       "id": "relay.traffic.total",
@@ -520,10 +525,11 @@
       "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "relay_traffic_command",
+      "target": "tui_relay_report",
       "args": [
         "total"
-      ]
+      ],
+      "kind": "report"
     },
     {
       "id": "relay.traffic.backend",
@@ -532,7 +538,8 @@
       "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "tui_relay_backend"
+      "target": "tui_relay_backend",
+      "kind": "report"
     },
     {
       "id": "relay.traffic.backends",
@@ -541,10 +548,11 @@
       "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "relay_traffic_command",
+      "target": "tui_relay_report",
       "args": [
         "backends"
-      ]
+      ],
+      "kind": "report"
     },
     {
       "id": "relay.traffic.recent",
@@ -553,10 +561,11 @@
       "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "relay_traffic_command",
+      "target": "tui_relay_report",
       "args": [
         "recent"
-      ]
+      ],
+      "kind": "report"
     },
     {
       "id": "relay.traffic.status",
@@ -565,10 +574,11 @@
       "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
       "risk": "read_only",
       "module": "adapter",
-      "target": "relay_traffic_command",
+      "target": "tui_relay_report",
       "args": [
         "status"
-      ]
+      ],
+      "kind": "report"
     },
     {
       "id": "psiphon.instances",

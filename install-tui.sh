@@ -48,6 +48,11 @@ secure_directory "$install_dir" ||
 exec {lock}<"$install_dir"
 flock -n "$lock" || { printf '[x] Уже идёт установка RemnaSuper TUI.\n' >&2; exit 1; }
 
+journal_lock=/run/lock/remnasuper-network-diagnostics.lock
+[[ ! -L "$journal_lock" ]] || { printf '[x] Небезопасный файл блокировки диагностики.\n' >&2; exit 1; }
+exec {diagnostics_lock}>>"$journal_lock"
+flock -n "$diagnostics_lock" || { printf '[x] Активна парная диагностика.\n' >&2; exit 1; }
+
 journal_dir=/var/lib/remnasuper/network-diagnostics/sessions
 if [[ -d "$journal_dir" && -n "$(find "$journal_dir" -name journal.json -print -quit)" ]]; then
     printf '[x] Активна диагностика или ожидается очистка её ресурсов.\n' >&2

@@ -15,6 +15,27 @@ CATALOG = ROOT / "lib/backend/actions.json"
 BRIDGE = ROOT / "lib/backend/bridge.sh"
 
 
+def report_events(job, source):
+    payload = source.read(8 * 1024 * 1024 + 1)
+    if len(payload) > 8 * 1024 * 1024:
+        raise ValueError("Отчёт слишком велик для встроенного просмотра.")
+    report = json.loads(payload)
+    if report.get("v") != 1 or not isinstance(report.get("sections"), list):
+        raise ValueError("Некорректный ответ сборщика HAProxy.")
+    for section in report["sections"]:
+        if "text" in section:
+            emit(job, "report_text", message=section["text"][:8192])
+            continue
+        headers = section["headers"]
+        rows = section["rows"]
+        emit(job, "report_header", columns=headers[:64])
+        if len(rows) > 1000 or len(headers) > 64:
+            emit(job, "warning", message="Встроенный просмотр ограничен 1000 строками и 64 столбцами.")
+        selection = rows if len(rows) <= 1000 else rows[:999] + rows[-1:]
+        for row in selection:
+            emit(job, "report_row", cells=[str(value)[:128] for value in row[:64]])
+
+
 def arguments(action, supplied):
     fields = action.get("fields", ())
     if not isinstance(supplied, dict) or supplied.keys() != {field["id"] for field in fields}:
@@ -61,7 +82,7 @@ def run():
                     lock = os.open("/run/lock/remnasuper-tui.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 kind = action.get("kind", "bash")
-                if kind == "bash":
+                if kind in {"bash", "report"}:
                     cmd = ["/bin/bash", str(BRIDGE), job, str(outcome.fileno()),
                            action["module"], action["target"], *args]
                 elif kind == "update":
@@ -78,6 +99,13 @@ def run():
                                   "local": "Запущена локальная сборка.",
                                   "skipped": "Проверка обновлений отключена."}
                         emit(job, "log", message=labels.get(available, "Доступна версия " + available + "."))
+                elif kind == "report":
+                    with tempfile.TemporaryFile() as report_file:
+                        code = subprocess.run(cmd, stdout=report_file, pass_fds=(3, 4, outcome.fileno()),
+                                              check=False).returncode
+                        if code == 0:
+                            report_file.seek(0)
+                            report_events(job, report_file)
                 else:
                     code = subprocess.run(cmd, pass_fds=(3, 4, outcome.fileno()), check=False).returncode
                     if action["id"] == "update.apply" and code == 0:

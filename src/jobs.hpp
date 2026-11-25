@@ -10,6 +10,11 @@
 
 using Json = nlohmann::json;
 
+struct ReportTable {
+    std::vector<std::string> columns;
+    std::vector<std::vector<std::string>> rows;
+};
+
 class Job {
 public:
     Job(const std::filesystem::path &script, const std::string &id, const std::string &action,
@@ -27,6 +32,8 @@ public:
     const std::string &status() const { return status_; }
     const Json &prompt() const { return prompt_; }
     const Json &data() const { return data_; }
+    const std::vector<ReportTable> &tables() const { return tables_; }
+    const std::string &report_text() const { return report_text_; }
     Pty *terminal() const { return terminal_.get(); }
 private:
     void append(std::string line);
@@ -50,6 +57,8 @@ private:
     std::string pending_output_;
     std::string pending_errors_;
     std::unique_ptr<Pty> terminal_;
+    std::vector<ReportTable> tables_;
+    std::string report_text_;
     Json prompt_;
     Json data_;
 };

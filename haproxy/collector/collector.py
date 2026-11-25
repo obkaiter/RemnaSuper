@@ -20,14 +20,17 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from database import event, open_database, prune_history, read_state, record_poll, set_state
 from haproxy_stats import read_stats
-from reports import (export_month, last_poll_speed, list_backends, local_time, period, print_backend,
+from reports import (ReportOutput, export_month, last_poll_speed, list_backends, local_time, period, print_backend,
                      print_daily, print_recent, print_title, print_totals, size)
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG = ROOT / 'config/config.json'
-DEFAULTS = {'socket': str(ROOT / 'run/admin.sock'), 'interval': 60,
-            'database': str(ROOT / 'database/traffic.sqlite3'), 'timezone': 'Europe/Moscow',
+REPORT_COMMANDS = {'today', 'yesterday', 'month', 'daily', 'total', 'recent', 'status', 'backends', 'backend'}
+
+
+def default_settings(root):
+    return {'socket': str(root / 'run/admin.sock'), 'interval': 60,
+            'database': str(root / 'database/traffic.sqlite3'), 'timezone': 'Europe/Moscow',
             'retention_days': 365, 'log_level': 'INFO'}
 
 
@@ -41,38 +44,39 @@ class Settings:
     log_level: str
 
 
-def module_path(value, directory):
+def module_path(value, directory, root):
     path = Path(value)
-    parent = ROOT / directory
+    parent = root / directory
     if not path.is_absolute():
-        path = ROOT / path
+        path = root / path
     if not path.resolve().is_relative_to(parent) or path.resolve() == parent:
         raise ValueError(f'Путь должен находиться в {parent}')
     return path
 
 
-def load_settings():
-    values = DEFAULTS | json.loads(CONFIG.read_text(encoding='utf-8'))
+def load_settings(root=ROOT):
+    values = default_settings(root) | json.loads((root / 'config/config.json').read_text(encoding='utf-8'))
     for key in ('interval', 'retention_days'):
         if type(values[key]) is not int or values[key] < 1:
             raise ValueError(f'{key} должен быть положительным целым числом')
     if values['log_level'] not in ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'):
         raise ValueError('Недопустимый уровень логирования')
-    return Settings(module_path(values['socket'], 'run'), module_path(values['database'], 'database'),
+    return Settings(module_path(values['socket'], 'run', root), module_path(values['database'], 'database', root),
                     values['interval'], ZoneInfo(values['timezone']), values['retention_days'], values['log_level'])
 
 
 def init_settings():
-    if CONFIG.exists():
+    config = ROOT / 'config/config.json'
+    if config.exists():
         return
-    with NamedTemporaryFile(mode='w', dir=CONFIG.parent, encoding='utf-8', delete=False) as temporary:
+    with NamedTemporaryFile(mode='w', dir=config.parent, encoding='utf-8', delete=False) as temporary:
         candidate = Path(temporary.name)
         try:
-            json.dump(DEFAULTS, temporary, indent=4)
+            json.dump(default_settings(ROOT), temporary, indent=4)
             temporary.write('\n')
             temporary.close()
             try:
-                os.link(candidate, CONFIG)
+                os.link(candidate, config)
             except FileExistsError:
                 pass
         finally:
@@ -199,20 +203,23 @@ def collect_traffic(settings):
             log.info('Сборщик остановлен')
 
 
-def print_status(settings, database=None):
+def print_status(settings, database=None, output=None):
+    output = output or ReportOutput()
     service = subprocess.run(['systemctl', 'is-active', 'haproxy-traffic.service'],
                              capture_output=True, text=True, timeout=5, check=False)
     state = service.stdout.strip() or 'не удалось получить состояние'
-    print(f'Служба haproxy-traffic.service: {state}')
-    print('Collector работает.' if state == 'active' else 'Collector не работает.')
-    print(f'Интервал опроса: {settings.interval} с\nStats Socket: {settings.socket}\nБаза: {settings.database}')
+    output.text(f'Служба haproxy-traffic.service: {state}')
+    output.text('Collector работает.' if state == 'active' else 'Collector не работает.')
+    output.text(f'Интервал опроса: {settings.interval} с\nStats Socket: {settings.socket}\nБаза: {settings.database}')
+    if output.structured:
+        output.text(f'Хранение: {settings.retention_days} дней')
     if database is None:
-        print('Сбор статистики ещё не начинался.')
+        output.text('Сбор статистики ещё не начинался.')
         return
     total, active = database.execute('SELECT COUNT(*), COALESCE(SUM(is_active), 0) FROM backends').fetchone()
     state = read_state(database)
     zone = settings.zone
-    print(f'Backend: {total}, в конфигурации: {active}, удалено: {total - active}')
+    output.text(f'Backend: {total}, в конфигурации: {active}, удалено: {total - active}')
     files = (settings.database, Path(f'{settings.database}-wal'), Path(f'{settings.database}-shm'))
     disk_size = 0
     for path in files:
@@ -220,18 +227,18 @@ def print_status(settings, database=None):
             disk_size += path.stat().st_size
         except FileNotFoundError:
             pass
-    print(f'Размер базы с WAL: {size(disk_size)}')
-    print(f"Первое измерение: {local_time(state.get('first_poll'), zone)}")
-    print(f"Последний успешный опрос: {local_time(state.get('last_poll'), zone)}")
+    output.text(f'Размер базы с WAL: {size(disk_size)}')
+    output.text(f"Первое измерение: {local_time(state.get('first_poll'), zone)}")
+    output.text(f"Последний успешный опрос: {local_time(state.get('last_poll'), zone)}")
     if 'last_poll' not in state:
-        print('Сбор статистики ещё не начинался.')
+        output.text('Сбор статистики ещё не начинался.')
     else:
         speed = last_poll_speed(database, int(state['last_poll']))
-        print(f'Средняя скорость за последний интервал, Мбит/с: {speed}')
+        output.text(f'Средняя скорость за последний интервал, Мбит/с: {speed}')
     if state.get('current_error'):
-        print(f"Текущая ошибка: {state['current_error']}")
+        output.text(f"Текущая ошибка: {state['current_error']}")
     if state.get('last_error'):
-        print(f"Последняя ошибка ({local_time(state.get('last_error_at'), zone)}): {state['last_error']}")
+        output.text(f"Последняя ошибка ({local_time(state.get('last_error_at'), zone)}): {state['last_error']}")
 
 
 def backup_database(database):
@@ -250,6 +257,8 @@ def backup_database(database):
 
 def command_line():
     parser = argparse.ArgumentParser(description='Статистика HAProxy в RemnaSuper')
+    parser.add_argument('--format', choices=('text', 'json'), default='text')
+    parser.add_argument('--data-root', type=Path)
     commands = parser.add_subparsers(dest='command', required=True)
     for name in ('init', 'daemon', 'today', 'yesterday', 'total', 'recent', 'status', 'backup', 'database', 'socket-path'):
         commands.add_parser(name)
@@ -264,37 +273,40 @@ def command_line():
     return parser.parse_args()
 
 
-def run_report(args, settings, database):
+def run_report(args, settings, database, output):
     command = args.command
     zone = settings.zone
     today = datetime.now(zone).date()
     first, last = period(command, getattr(args, 'month', None), today)
     if command == 'status':
-        print_status(settings, database)
+        print_status(settings, database, output)
     elif command == 'backends':
-        list_backends(database, zone, args.names)
+        list_backends(database, zone, args.names, output)
     elif command == 'recent':
-        print_recent(database, zone)
+        print_recent(database, zone, output)
     elif command == 'backend':
-        print_backend(database, args.name, args.month, today, zone)
+        print_backend(database, args.name, args.month, today, zone, output)
     elif command == 'backup':
         backup_database(database)
     elif command == 'export':
         export_month(database, ROOT / 'exports', first, last)
     else:
-        print_title('Весь период хранения' if command == 'total' else f'{first:%d.%m.%Y} — {last:%d.%m.%Y}', zone)
+        print_title('Весь период хранения' if command == 'total' else f'{first:%d.%m.%Y} — {last:%d.%m.%Y}', zone, output)
         if command == 'daily':
-            print_daily(database, first, last)
+            print_daily(database, first, last, output=output)
         else:
-            print_totals(database, first, last)
+            print_totals(database, first, last, output)
 
 
 def main():
     args = command_line()
+    output = ReportOutput(args.format == 'json')
     try:
+        if (output.structured or args.data_root is not None) and args.command not in REPORT_COMMANDS:
+            raise ValueError('Формат JSON и выбор каталога доступны для отчётов чтения.')
         if args.command == 'init':
             init_settings()
-        settings = load_settings()
+        settings = load_settings(args.data_root or ROOT)
         if args.command == 'init':
             return 0
         if args.command == 'socket-path':
@@ -308,11 +320,13 @@ def main():
             print(worker if args.worker else f'Stats Socket доступен. Найдено Backend: {len(backends)}.')
         elif settings.database.is_file():
             with closing(open_database(settings.database)) as database:
-                run_report(args, settings, database)
+                run_report(args, settings, database, output)
         elif args.command == 'status':
-            print_status(settings)
+            print_status(settings, output=output)
         elif args.command != 'backends' or not args.names:
-            print('Сбор статистики ещё не начинался. Нет данных для отчёта.')
+            output.text('Сбор статистики ещё не начинался. Нет данных для отчёта.')
+        if output.structured:
+            print(json.dumps({'v': 1, 'sections': output.sections}, ensure_ascii=False))
         sys.stdout.flush()
     except BrokenPipeError:
         with open(os.devnull, 'w') as output:

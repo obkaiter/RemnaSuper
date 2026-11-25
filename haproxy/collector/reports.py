@@ -11,6 +11,25 @@ SPEED_HEADER = 'СР. Мбит/с'
 TRAFFIC_HEADERS = ('UPLOAD', 'DOWNLOAD', 'TOTAL', SPEED_HEADER)
 
 
+class ReportOutput:
+    def __init__(self, structured=False):
+        self.structured = structured
+        self.sections = []
+
+    def text(self, value=''):
+        if self.structured:
+            if value:
+                self.sections.append({'text': value})
+        else:
+            print(value)
+
+    def table(self, headers, rows, right_from):
+        if self.structured:
+            self.sections.append({'headers': headers, 'rows': list(rows), 'right_from': right_from})
+        else:
+            print_table(headers, rows, right_from)
+
+
 def month_dates(month):
     if not re.fullmatch(r'[0-9]{4}-(0[1-9]|1[0-2])', month):
         raise ValueError('Укажите месяц в формате ГГГГ-ММ')
@@ -69,8 +88,8 @@ def print_table(headers, rows, right_from):
         print(render(row))
 
 
-def print_title(label, zone):
-    print(f'Статистика трафика\n{label}\nЧасовой пояс: {zone}\n')
+def print_title(label, zone, output=None):
+    (output or ReportOutput()).text(f'Статистика трафика\n{label}\nЧасовой пояс: {zone}\n')
 
 
 def traffic_rows(database, first, last, *, name=None, daily=False, include_total=False):
@@ -99,21 +118,23 @@ def traffic_rows(database, first, last, *, name=None, daily=False, include_total
     return list(database.execute(query + f' ORDER BY {columns}', params))
 
 
-def print_totals(database, first, last):
+def print_totals(database, first, last, output=None):
+    output = output or ReportOutput()
     rows = traffic_rows(database, first, last, include_total=True)
     if not rows:
-        print(NO_DATA)
+        output.text(NO_DATA)
         return
     total, *backends = rows
     report = [(name, *data_columns(*values)) for name, *values in backends]
     report.append(('ИТОГО', *data_columns(*total[1:])))
-    print_table(('BACKEND', *TRAFFIC_HEADERS), report, 1)
+    output.table(('BACKEND', *TRAFFIC_HEADERS), report, 1)
 
 
-def print_daily(database, first, last, name=None):
+def print_daily(database, first, last, name=None, output=None):
+    output = output or ReportOutput()
     samples = traffic_rows(database, first, last, name=name, daily=True, include_total=name is None)
     if not samples:
-        print(NO_DATA)
+        output.text(NO_DATA)
         return
     names = sorted({row[1] for row in samples if row[1] is not None})
     data = {(day, backend): values for day, backend, *values in samples}
@@ -124,14 +145,15 @@ def print_daily(database, first, last, name=None):
         values = [data.get((key, backend)) for backend in names]
         cells = [' / '.join(data_columns(*value)) if value is not None else '—' for value in values]
         rows.append((day.strftime('%d.%m.%Y'), *cells, *data_columns(*data.get((key, name), (0, 0, 0)))))
-    print('Значения по Backend: Upload / Download / Total / средняя скорость в Мбит/с\n')
-    print_table(('ДАТА', *names, *TRAFFIC_HEADERS), rows, 1)
+    output.text('Значения по Backend: Upload / Download / Total / средняя скорость в Мбит/с\n')
+    output.table(('ДАТА', *names, *TRAFFIC_HEADERS), rows, 1)
 
 
-def list_backends(database, zone, names_only=False):
+def list_backends(database, zone, names_only=False, output=None):
+    output = output or ReportOutput()
     if names_only:
         for (name,) in database.execute('SELECT name FROM backends ORDER BY name'):
-            print(name)
+            output.text(name)
         return
     rows = list(database.execute('''
         SELECT b.*, t.upload_bytes, t.download_bytes, t.timestamp_end - t.timestamp_start AS seconds
@@ -139,44 +161,46 @@ def list_backends(database, zone, names_only=False):
         ORDER BY b.name
     '''))
     if rows:
-        print_table(('BACKEND', 'СОСТОЯНИЕ', 'В КОНФИГЕ', 'ВПЕРВЫЕ', 'ПОСЛЕДНИЙ ОПРОС', SPEED_HEADER),
+        output.table(('BACKEND', 'СОСТОЯНИЕ', 'В КОНФИГЕ', 'ВПЕРВЫЕ', 'ПОСЛЕДНИЙ ОПРОС', SPEED_HEADER),
                     [(row['name'], row['last_status'], 'да' if row['is_active'] else 'нет',
                       local_time(row['first_seen'], zone), local_time(row['last_seen'], zone),
                       average_speed(row['upload_bytes'], row['download_bytes'], row['seconds'])) for row in rows], 5)
     else:
-        print('Сборщик ещё не обнаружил ни одного Backend.')
+        output.text('Сборщик ещё не обнаружил ни одного Backend.')
 
 
-def print_backend(database, name, month, today, zone):
+def print_backend(database, name, month, today, zone, output=None):
+    output = output or ReportOutput()
     row = database.execute('SELECT * FROM backends WHERE name=?', (name,)).fetchone()
     if row is None:
         raise ValueError(f'Backend {name} ещё не обнаружен')
     first, last = month_dates(month or today.strftime('%Y-%m'))
-    print_title(name, zone)
-    print(f"Впервые: {local_time(row['first_seen'], zone)} · Состояние: {row['last_status']} · "
-          f"В конфигурации: {'да' if row['is_active'] else 'нет'}\n")
+    print_title(name, zone, output)
+    output.text(f"Впервые: {local_time(row['first_seen'], zone)} · Состояние: {row['last_status']} · "
+                f"В конфигурации: {'да' if row['is_active'] else 'нет'}\n")
     yesterday = today - timedelta(days=1)
     rows = []
     for label, start, end in (('Сегодня', today, today), ('Вчера', yesterday, yesterday),
                               (first.strftime('%Y-%m'), first, last), ('Вся история', date.min, date.max)):
         values = traffic_rows(database, start, end, name=name)
         rows.append((label, *(data_columns(*values[0][1:]) if values else ('—',) * len(TRAFFIC_HEADERS))))
-    print_table(('ПЕРИОД', *TRAFFIC_HEADERS), rows, 1)
-    print()
-    print_daily(database, first, last, name)
+    output.table(('ПЕРИОД', *TRAFFIC_HEADERS), rows, 1)
+    output.text()
+    print_daily(database, first, last, name, output)
 
 
-def print_recent(database, zone):
+def print_recent(database, zone, output=None):
+    output = output or ReportOutput()
     rows = database.execute('''
         SELECT timestamp_end, backend, upload_bytes, download_bytes, timestamp_end - timestamp_start
         FROM traffic_intervals
         ORDER BY timestamp_end DESC, backend DESC LIMIT 50
     ''').fetchall()
     if rows:
-        print_table(('КОНЕЦ ИНТЕРВАЛА', 'BACKEND', *TRAFFIC_HEADERS),
+        output.table(('КОНЕЦ ИНТЕРВАЛА', 'BACKEND', *TRAFFIC_HEADERS),
                     [(local_time(end, zone), name, *data_columns(*values)) for end, name, *values in rows], 2)
     else:
-        print(NO_DATA)
+        output.text(NO_DATA)
 
 
 def last_poll_speed(database, timestamp):

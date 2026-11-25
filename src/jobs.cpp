@@ -114,7 +114,8 @@ Job::Job(const std::filesystem::path &script, const std::string &id, const std::
     }
     const std::string script_name = script.string();
     char python[] = "/usr/bin/python3";
-    char *const argv[]{python, const_cast<char *>(script_name.c_str()), nullptr};
+    char no_cache[] = "-B";
+    char *const argv[]{python, no_cache, const_cast<char *>(script_name.c_str()), nullptr};
     if (interactive) {
         terminal_ = std::make_unique<Pty>();
         terminal_->start(mode, rows, cols, argv, request.reader(), events.writer());
@@ -214,6 +215,19 @@ void Job::consume_events(const std::string &bytes) {
                 else throw std::runtime_error("неизвестный результат");
                 data_ = event.value("data", Json{});
                 append(status_ + " · код " + std::to_string(code));
+            } else if (type == "report_text") {
+                if (report_text_.size() < 32768) report_text_ += event.at("message").get<std::string>() + "\n";
+            } else if (type == "report_header") {
+                if (tables_.size() >= 12) throw std::runtime_error("слишком много таблиц");
+                auto columns = event.at("columns").get<std::vector<std::string>>();
+                if (columns.empty() || columns.size() > 64) throw std::runtime_error("некорректные столбцы");
+                tables_.push_back({std::move(columns), {}});
+            } else if (type == "report_row") {
+                auto cells = event.at("cells").get<std::vector<std::string>>();
+                if (tables_.empty() || tables_.back().rows.size() >= 1000 || cells.size() != tables_.back().columns.size()) {
+                    throw std::runtime_error("некорректная строка");
+                }
+                tables_.back().rows.push_back(std::move(cells));
             } else if (type == "prompt") {
                 if (!prompt_.is_null() || !event.at("prompt_id").is_string()) {
                     throw std::runtime_error("неожиданный запрос");
@@ -249,6 +263,9 @@ bool Job::pump() {
     close_fd(request_);
     running_ = false;
     prompt_ = nullptr;
+    if (terminal_) {
+        for (auto &line : terminal_->snapshot()) append(std::move(line));
+    }
     if (!pending_output_.empty()) append(pending_output_);
     if (!pending_errors_.empty()) append("[stderr] " + pending_errors_);
     const int code = WIFEXITED(exit_status_) ? WEXITSTATUS(exit_status_) : 128 + WTERMSIG(exit_status_);

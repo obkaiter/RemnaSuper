@@ -17,8 +17,6 @@
 #include <unistd.h>
 
 namespace {
-constexpr int paste_start = KEY_MAX + 1;
-constexpr int paste_end = KEY_MAX + 2;
 constexpr size_t queue_limit = 256 * 1024;
 
 int color_index(VTermColor value, bool foreground) {
@@ -345,4 +343,23 @@ void Pty::draw() {
     wmove(stdscr, cursor.row, cursor.col);
     wnoutrefresh(stdscr);
     unread_ = false;
+}
+
+std::vector<std::string> Pty::snapshot() const {
+    std::vector<std::string> lines;
+    for (int row = 0; screen_ && row < rows_; ++row) {
+        std::wstring line;
+        for (int col = 0; col < cols_; ++col) {
+            VTermScreenCell cell{};
+            if (!vterm_screen_get_cell(screen_, {row, col}, &cell) || cell.chars[0] == UINT32_MAX) continue;
+            if (!cell.chars[0]) line += L' ';
+            for (const auto c : cell.chars) {
+                if (!c) break;
+                line += static_cast<wchar_t>(c);
+            }
+        }
+        while (!line.empty() && line.back() == L' ') line.pop_back();
+        if (!line.empty()) lines.push_back(utf8(line));
+    }
+    return lines;
 }

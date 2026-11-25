@@ -34,7 +34,7 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            ca-certificates git build-essential cmake pkg-config libncurses-dev libvterm-dev \
+            ca-certificates curl git build-essential cmake pkg-config libncurses-dev libvterm-dev \
             nlohmann-json3-dev ncurses-term python3 python3-pexpect shellcheck
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -45,6 +45,7 @@ jobs:
           cmake --build "$RUNNER_TEMP/build" --parallel 2
           cmake --install "$RUNNER_TEMP/build" --prefix "$RUNNER_TEMP/tui"
           cp -a lib "$RUNNER_TEMP/tui/"
+          cp -a haproxy "$RUNNER_TEMP/tui/"
           "$RUNNER_TEMP/tui/bin/remnasuper-tui" --self-test
           test "$("$RUNNER_TEMP/tui/bin/remnasuper-tui" --version)" = "$(cat VERSION)"
       - name: Check Bash and Python
@@ -79,6 +80,74 @@ jobs:
           child.close()
           assert child.exitstatus == 0
           PY
+      - name: Check persistent shell and resize
+        env:
+          TERM: xterm-256color
+          LC_ALL: C.UTF-8
+          REMNASUPER_SKIP_UPDATE: '1'
+          SHELL: /bin/bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import pexpect
+          import time
+
+          executable = os.path.join(os.environ["RUNNER_TEMP"], "tui", "bin", "remnasuper-tui")
+          child = pexpect.spawn(executable, encoding="utf-8", dimensions=(28, 100), timeout=15)
+          child.expect_exact("Обзор сервера")
+          child.send("\x1b[18~")
+          child.expect_exact("Поиск действий")
+          child.send("rs_saved_filter")
+          child.sendcontrol("o")
+          child.sendline("cd /tmp; export RS_TEST=ok; alias rs_test='true'; printf 'TUI_PID:%s\\n' \"$$\"")
+          child.expect(r"TUI_PID:(\d+)")
+          pid = child.match.group(1)
+          child.sendcontrol("o")
+          child.expect_exact("Поиск действий")
+          child.expect_exact("rs_saved_filter")
+          child.setwinsize(24, 80)
+          child.sendcontrol("o")
+          child.sendline("printf 'TUI_STATE:%s:%s:%s\\n' \"$PWD\" \"$RS_TEST\" \"$$\"; type rs_test")
+          child.expect_exact("TUI_STATE:/tmp:ok:" + pid)
+          child.expect_exact("rs_test is aliased")
+          child.sendline("sleep 30 &")
+          child.expect(r"\[1\] \d+")
+          child.sendline("fg")
+          child.expect_exact("sleep 30")
+          time.sleep(0.15)
+          child.sendcontrol("z")
+          child.expect_exact("Stopped")
+          child.sendline("bg; kill %1; wait %1; printf 'JOB_%s\\n' CLEAN")
+          child.expect_exact("JOB_CLEAN")
+          child.sendline("printf '\\033[?1049hALT_%s' SCREEN; read -r; printf '\\033[?1049l'")
+          child.expect_exact("ALT_SCREEN")
+          child.sendcontrol("o")
+          child.expect_exact("Поиск действий")
+          child.sendcontrol("o")
+          child.expect_exact("ALT_SCREEN")
+          child.send("\r")
+          child.sendline("exit")
+          child.expect_exact("Поиск действий")
+          child.send("\x1b")
+          child.send("\x1b[21~")
+          child.expect(pexpect.EOF)
+          child.close()
+          assert child.exitstatus == 0
+          PY
+      - name: Check side-by-side installation
+        if: matrix.name == 'debian-12'
+        run: |
+          legacy="$RUNNER_TEMP/rs-legacy"
+          printf '#!/bin/sh\nprintf "legacy\\n"\n' > "$legacy"
+          chmod 755 "$legacy"
+          ln -sT "$legacy" /usr/local/bin/rs
+          bash install-tui.sh --local "$GITHUB_WORKSPACE"
+          test "$(rs)" = legacy
+          test "$(rs-tui --version)" = "$(cat VERSION)"
+          active="$(readlink /opt/RemnaSuper-tui/current)"
+          if bash install-tui.sh --local "$GITHUB_WORKSPACE" --expect-version 0.0.0; then exit 1; fi
+          test "$(readlink /opt/RemnaSuper-tui/current)" = "$active"
+          test "$(rs)" = legacy
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: remnasuper-tui-${{ matrix.name }}-amd64

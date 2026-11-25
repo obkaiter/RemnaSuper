@@ -6,11 +6,15 @@
 #include <memory>
 #include <string>
 #include <termios.h>
+#include <vector>
 
 struct Key {
     wint_t value;
     bool special;
 };
+
+constexpr int paste_start = KEY_MAX + 1;
+constexpr int paste_end = KEY_MAX + 2;
 
 std::wstring wide(const std::string &value);
 std::string utf8(const std::wstring &value);
@@ -48,6 +52,7 @@ public:
     int fd() const { return master_; }
     short poll_events() const;
     int status() const { return status_; }
+    std::vector<std::string> snapshot() const;
 private:
     static void queue(const char *bytes, size_t size, void *context);
     static int property(VTermProp prop, VTermValue *value, void *context);
