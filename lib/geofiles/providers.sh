@@ -37,24 +37,34 @@ install_security_geofiles() {
 show_security_geofile_routing() {
     printf '\n'
     info "Добавьте оба правила в routing.rules профиля Xray ноды перед разрешающими правилами."
-    info "Используйте тег существующего outbound с протоколом blackhole или добавьте его в outbounds."
+    info "Используйте тег существующего outbound с протоколом blackhole в обоих правилах или добавьте outbound из примера."
     printf '\n'
     cat <<'EOF'
 {
     "outbounds": [
-        {"tag": "blackhole", "protocol": "blackhole", "settings": {}}
+        {
+            "tag": "block",
+            "protocol": "blackhole",
+            "settings": {}
+        }
     ],
     "routing": {
         "rules": [
             {
                 "type": "field",
-                "domain": ["ext:security.dat:malware", "ext:security.dat:phishing"],
-                "outboundTag": "blackhole"
+                "domain": [
+                    "ext:security.dat:malware",
+                    "ext:security.dat:phishing"
+                ],
+                "outboundTag": "block"
             },
             {
                 "type": "field",
-                "ip": ["ext:security-ip.dat:malware", "ext:security-ip.dat:phishing"],
-                "outboundTag": "blackhole"
+                "ip": [
+                    "ext:security-ip.dat:malware",
+                    "ext:security-ip.dat:phishing"
+                ],
+                "outboundTag": "block"
             }
         ]
     }

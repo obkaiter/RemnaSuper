@@ -33,14 +33,14 @@ show_smtp_egress_xray_rule() {
     section "Правило Xray для TCP/25"
     info "Добавьте правило в routing.rules перед разрешающими правилами."
     info "Если в профиле есть старое правило, блокирующее TCP/25, 465 и 587, замените его этим."
-    info "Укажите тег существующего outbound с протоколом blackhole, если он отличается."
+    info "Если тег существующего outbound с протоколом blackhole отличается от block, укажите его в outboundTag."
     printf '\n'
     cat <<'EOF'
 {
     "type": "field",
     "network": "tcp",
     "port": "25",
-    "outboundTag": "blackhole"
+    "outboundTag": "block"
 }
 EOF
 }
