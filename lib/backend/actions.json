@@ -1,0 +1,1364 @@
+{
+  "v": 1,
+  "actions": [
+    {
+      "id": "system.status",
+      "section": "Система",
+      "title": "Обзор сервера",
+      "summary": "Локальное состояние RemnaNode, агента, HAProxy, UFW и SSH.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_status"
+    },
+    {
+      "id": "update.check",
+      "section": "Система",
+      "title": "Проверить обновление",
+      "summary": "Сравнить установленный VERSION с версией в выбранной ветке GitHub.",
+      "risk": "external_read",
+      "module": "adapter",
+      "target": "",
+      "args": [
+        "--check"
+      ],
+      "kind": "update"
+    },
+    {
+      "id": "update.apply",
+      "section": "Система",
+      "title": "Обновить RemnaSuper TUI",
+      "summary": "Загрузить более свежий выпуск, проверить сборку и переключить установленный код. Данные сервера и команда rs используются обеими версиями.",
+      "risk": "mutate",
+      "module": "adapter",
+      "target": "",
+      "args": [
+        "--apply"
+      ],
+      "kind": "update"
+    },
+    {
+      "id": "logs.rotate",
+      "section": "Нода",
+      "title": "Настройка logrotate",
+      "summary": "Изменить /etc/logrotate.d/remnanode. После ротации стандартные профили перезапускают работающий контейнер remnanode.",
+      "risk": "mutate",
+      "module": "logs",
+      "target": "setup_logrotate"
+    },
+    {
+      "id": "node.restart",
+      "section": "Нода",
+      "title": "Перезапуск ноды",
+      "summary": "Docker Compose перезапустит сервисы RemnaNode. Текущие подключения могут прерваться на 5-10 секунд.",
+      "risk": "mutate",
+      "target": "restart_node",
+      "module": "system",
+      "legacy": "lib/menu/main.sh"
+    },
+    {
+      "id": "setup.run.node.precheck",
+      "section": "Нода",
+      "title": "Node Precheck",
+      "summary": "Скрипт будет загружен с vpn-hub.pro и выполнен через Bash с правами root. Он считывает сведения об ОС, процессоре, памяти, диске, сетевых интерфейсах, открытых портах и firewall; публичный IP отправляется внешним сервисам для геолокации и проверок. Globalping проверит этот IP по ICMP и TCP/22 из сетей РФ. Тест скорости может скачать до 100 МБ с Cloudflare и до 100 МБ с Selectel, а также отправить до 25 МБ на Cloudflare. Постоянные файлы и настройки не изменяются; тест записи на диск по умолчанию выключен.",
+      "risk": "external_read",
+      "target": "run_node_precheck",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "setup.configure.ssh.key.login",
+      "section": "Нода",
+      "title": "Сгенерировать ssh-ключ и отключить вход по паролю",
+      "summary": "Будет сохранена резервная копия sshd_config. Для выбранного пользователя будет создан ключ Ed25519. Открытый ключ будет добавлен в ~/.ssh/authorized_keys, а закрытый будет временно доступен этому пользователю для скачивания по SCP. После проверки входа с новым ключом программа отключит парольную и интерактивную аутентификацию для всех пользователей и перечитает настройки ssh.service. Пользователи, у которых есть только пароль, потеряют возможность заново подключиться. Оставьте текущий сеанс открытым до завершения.",
+      "risk": "destructive",
+      "target": "configure_ssh_key_login",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh",
+      "cancel": true
+    },
+    {
+      "id": "setup.initial.setup",
+      "section": "Нода",
+      "title": "apt update && apt upgrade",
+      "summary": "Будут обновлены пакеты системы и установлены cron, mc и wget. После успешного обновления VPS автоматически перезагрузится; подключения прервутся.",
+      "risk": "reboot",
+      "target": "initial_setup",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "node.ipv6.disable",
+      "section": "Нода",
+      "title": "Отключить IPv6",
+      "summary": "IPv6 будет отключён на существующих и новых сетевых интерфейсах сразу и после перезагрузки. Будет создан файл /etc/sysctl.d/zzzz-remnasuper-disable-ipv6.conf и применены системные параметры; открытый по IPv6 SSH-сеанс или другие IPv6-подключения могут прерваться. После этого сервер будет доступен по IPv4, если он настроен.",
+      "risk": "destructive",
+      "target": "disable_ipv6",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh"
+    },
+    {
+      "id": "node.fail2ban.install",
+      "section": "Нода",
+      "title": "Установка fail2ban",
+      "summary": "Будет установлен fail2ban, включена защита SSH с четырьмя попытками входа за 10 минут и блокировкой на один час, после чего сервис будет добавлен в автозапуск и запущен.",
+      "risk": "mutate",
+      "target": "install_fail2ban",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh"
+    },
+    {
+      "id": "setup.install.rkn.guard",
+      "section": "Нода",
+      "title": "Установка rkn-guard",
+      "summary": "Будет загружен и запущен от root установщик rkn-guard из Flecksis/rkn-guard. Он установит необходимые пакеты, настроит фильтрацию адресов сканеров через iptables и ipset, логирование и systemd-службы; также будет предложено включить автообновление списков. Будут изменены сетевые правила сервера.",
+      "risk": "mutate",
+      "target": "install_rkn_guard",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "setup.install.remnawave.reverse.proxy",
+      "section": "Нода",
+      "title": "Установка remnawave-reverse-proxy",
+      "summary": "Будет скачан и запущен официальный install_remnawave.sh из репозитория eGamesAPI/remnawave-reverse-proxy.",
+      "risk": "mutate",
+      "target": "install_remnawave_reverse_proxy",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "node.port.change",
+      "section": "Нода",
+      "title": "Смена порта взаимодействия с панелью",
+      "summary": "В docker-compose.yml будет изменён порт NODE_PORT, а правило UFW для IP-адреса панели перенесено на новый порт. Если порт не указан, будет выбран свободный случайный порт. Затем нода будет перезапущена; подключения могут прерваться на 5–10 секунд.",
+      "risk": "mutate",
+      "target": "change_node_port",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh"
+    },
+    {
+      "id": "setup.install.remnanode.certificates",
+      "section": "Нода",
+      "title": "Подключить сертификаты в ноду",
+      "summary": "Домен сертификата будет найден в docker-compose.yml, файл будет сохранён в бэкап, сертификаты подключены к RemnaNode, после чего нода будет перезапущена.",
+      "risk": "mutate",
+      "target": "install_remnanode_certificates",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh"
+    },
+    {
+      "id": "setup.fix.logs",
+      "section": "Нода",
+      "title": "Исправить логи (access.log, xray.out.log)",
+      "summary": "Будут созданы access.log и error.log, каталог логов подключён к RemnaNode в docker-compose.yml, нода и агент перезапущены, затем будет предложена настройка ротации логов. Стандартные профили после фактической ротации перезапускают работающий контейнер remnanode, чтобы Xray открыл новые файлы; активные подключения могут кратковременно прерваться.",
+      "risk": "mutate",
+      "target": "fix_logs",
+      "module": "logs",
+      "legacy": "lib/menu/setup.sh"
+    },
+    {
+      "id": "setup.enable.tls.hsts",
+      "section": "Нода",
+      "title": "Заглушка: TLS 1.2, TLS 1.3 и HSTS",
+      "summary": "В каждый TLS server-блок с доменным server_name в /opt/remnanode/nginx.conf будет добавлен заголовок Strict-Transport-Security со сроком 1 год и includeSubDomains. Перед заменой файла будет создана резервная копия, конфигурация nginx будет проверена в контейнере, затем контейнеры RemnaNode будут перезапущены. Текущие подключения могут кратковременно прерваться.",
+      "risk": "mutate",
+      "target": "enable_tls_hsts",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh"
+    },
+    {
+      "id": "node.ufw.ipv6.remove",
+      "section": "Нода",
+      "title": "Удалить IPv6 из ufw",
+      "summary": "Будет сохранена резервная копия /etc/ufw/user6.rules и удалены все добавленные через UFW правила IPv6. Если UFW активен и обслуживает IPv6, новые правила будут сразу применены. Доступ по IPv6, включая SSH, может измениться.",
+      "risk": "destructive",
+      "target": "remove_ufw_ipv6_rules",
+      "module": "system",
+      "legacy": "lib/menu/setup.sh"
+    },
+    {
+      "id": "relay.service.start",
+      "section": "Релей",
+      "title": "Запуск HAProxy",
+      "summary": "HAProxy запустится и займёт порты, указанные в его конфигурации.",
+      "risk": "mutate",
+      "module": "system",
+      "target": "relay_haproxy_service",
+      "args": [
+        "start"
+      ],
+      "legacy": "lib/menu/relay_traffic.sh"
+    },
+    {
+      "id": "relay.service.stop",
+      "section": "Релей",
+      "title": "Остановка HAProxy",
+      "summary": "Текущие соединения прервутся. Релей будет недоступен до следующего запуска HAProxy.",
+      "risk": "mutate",
+      "module": "system",
+      "target": "relay_haproxy_service",
+      "args": [
+        "stop"
+      ],
+      "legacy": "lib/menu/relay_traffic.sh"
+    },
+    {
+      "id": "relay.service.restart",
+      "section": "Релей",
+      "title": "Перезапуск HAProxy",
+      "summary": "HAProxy проверит конфигурацию и перезапустится. Текущие соединения прервутся, счётчики HAProxy сбросятся.",
+      "risk": "mutate",
+      "module": "system",
+      "target": "relay_haproxy_service",
+      "args": [
+        "restart"
+      ],
+      "legacy": "lib/menu/relay_traffic.sh"
+    },
+    {
+      "id": "relay.traffic.backup",
+      "section": "Релей",
+      "title": "Резервная копия SQLite",
+      "summary": "Снимок базы будет сохранён в /opt/RemnaSuper/haproxy/backups.",
+      "risk": "mutate",
+      "module": "system",
+      "target": "relay_traffic_command",
+      "args": [
+        "backup"
+      ],
+      "legacy": "lib/menu/relay_traffic.sh"
+    },
+    {
+      "id": "relay.traffic.export",
+      "section": "Релей",
+      "title": "Выгрузка статистики",
+      "summary": "CSV за указанный месяц будет сохранён в /opt/RemnaSuper/haproxy/exports.",
+      "risk": "mutate",
+      "module": "system",
+      "target": "relay_traffic_command",
+      "args": [
+        "export",
+        "--month",
+        "@month"
+      ],
+      "legacy": "lib/menu/relay_traffic.sh",
+      "fields": [
+        {
+          "id": "month",
+          "label": "Месяц в формате ГГГГ-ММ",
+          "pattern": "(?!0000)[0-9]{4}-(0[1-9]|1[0-2])"
+        }
+      ]
+    },
+    {
+      "id": "relay.routes.list",
+      "section": "Релей",
+      "title": "Подключения SNI",
+      "summary": "Разобрать маршруты действующего HAProxy и показать frontend/backend и назначение.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_routes"
+    },
+    {
+      "id": "relay.routes.add",
+      "section": "Релей",
+      "title": "Добавить подключение SNI",
+      "summary": "Создать маршрут, проверить и сохранить конфигурацию с резервной копией. HAProxy перечитает конфиг или запустится. Первый штатный маршрут добавляет IPv4-слушатель TCP/443.",
+      "risk": "mutate",
+      "module": "adapter",
+      "target": "tui_route_add",
+      "args": [
+        "@domain",
+        "@port"
+      ],
+      "fields": [
+        {
+          "id": "domain",
+          "label": "Домен SNI (FQDN)",
+          "pattern": "[A-Za-z0-9.-]{1,253}",
+          "default": ""
+        },
+        {
+          "id": "port",
+          "label": "Порт выходной ноды",
+          "pattern": "[0-9]{1,5}",
+          "default": "443"
+        }
+      ]
+    },
+    {
+      "id": "relay.routes.remove",
+      "section": "Релей",
+      "title": "Удалить подключение SNI",
+      "summary": "Выберите конкретный маршрут. Backend сохранит резервную копию и проверит конфигурацию перед применением. Остановленный HAProxy может запуститься и занять порты.",
+      "risk": "destructive",
+      "module": "adapter",
+      "target": "tui_route_remove"
+    },
+    {
+      "id": "relay.bandwidth.status",
+      "section": "Релей",
+      "title": "Текущий лимит скорости",
+      "summary": "Проверить лимит на исходный IP для frontend bitwire_entry.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_bandwidth"
+    },
+    {
+      "id": "relay.status",
+      "section": "Релей",
+      "title": "Состояние HAProxy",
+      "summary": "Показать состояние systemd и последние сообщения службы.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_relay_status"
+    },
+    {
+      "id": "relay.socket",
+      "section": "Релей",
+      "title": "Проверить Stats Socket",
+      "summary": "Проверить ответ локального сокета статистики.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "relay_traffic_command",
+      "args": [
+        "probe"
+      ]
+    },
+    {
+      "id": "relay.config",
+      "section": "Релей",
+      "title": "Конфигурация HAProxy",
+      "summary": "Показать конфигурацию HAProxy с маскированием чувствительных директив.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_relay_config"
+    },
+    {
+      "id": "relay.logs",
+      "section": "Релей",
+      "title": "Журнал HAProxy",
+      "summary": "Показать последние 200 записей журнала systemd.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_relay_logs"
+    },
+    {
+      "id": "relay.bandwidth.set",
+      "section": "Релей",
+      "title": "Установить лимит скорости",
+      "summary": "Все TCP-соединения с одного IP через bitwire_entry будут делить указанное число Мбит/с на загрузку и отдельно указанный лимит Мбит/с на отдачу. Текущий конфиг будет сохранён и проверен. Работающий HAProxy перечитает его. Остановленный HAProxy запустится и займёт настроенные порты. Изменение действует для новых соединений.",
+      "risk": "mutate",
+      "target": "change_relay_bandwidth",
+      "module": "system",
+      "legacy": "lib/menu/relay_traffic.sh",
+      "fields": [
+        {
+          "id": "mbps",
+          "label": "Скорость в Мбит/с",
+          "pattern": "[1-9][0-9]{0,4}",
+          "default": ""
+        }
+      ],
+      "args": [
+        "set",
+        "@mbps"
+      ]
+    },
+    {
+      "id": "relay.bandwidth.remove",
+      "section": "Релей",
+      "title": "Удалить ограничение скорости",
+      "summary": "RemnaSuper удалит свои фильтры и таблицы лимита скорости для bitwire_entry. Текущий конфиг будет сохранён и проверен. Работающий HAProxy перечитает его. Остановленный HAProxy запустится и займёт настроенные порты. Изменение действует для новых соединений.",
+      "risk": "mutate",
+      "target": "change_relay_bandwidth",
+      "module": "system",
+      "legacy": "lib/menu/relay_traffic.sh",
+      "args": [
+        "remove"
+      ]
+    },
+    {
+      "id": "relay.remove.history",
+      "section": "Релей",
+      "title": "Удаление HAProxy с сохранением истории",
+      "summary": "Пакет HAProxy будет удалён через apt-get. Релей и сайт-заглушка станут недоступны через HAProxy, текущие соединения оборвутся. Сборщик будет остановлен и удалён, его настройки, SQLite, логи и резервные копии останутся в /opt/RemnaSuper/haproxy. Из haproxy.cfg будут убраны только директивы, добавленные сборщиком.",
+      "risk": "destructive",
+      "target": "remove_relay_haproxy",
+      "module": "system",
+      "legacy": "lib/menu/relay_traffic.sh",
+      "args": [
+        "history"
+      ]
+    },
+    {
+      "id": "relay.remove.full",
+      "section": "Релей",
+      "title": "Полное удаление HAProxy и статистики",
+      "summary": "Пакет HAProxy будет удалён через apt-get. Релей и сайт-заглушка станут недоступны через HAProxy, текущие соединения оборвутся. Сборщик будет остановлен и удалён. Весь /opt/RemnaSuper/haproxy, включая SQLite, историю, настройки, логи, выгрузки и резервные копии, будет удалён безвозвратно. Из haproxy.cfg будут убраны только директивы, добавленные сборщиком.",
+      "risk": "destructive",
+      "target": "remove_relay_haproxy",
+      "module": "system",
+      "legacy": "lib/menu/relay_traffic.sh",
+      "args": [
+        "full"
+      ]
+    },
+    {
+      "id": "relay.site.install",
+      "section": "Релей",
+      "title": "Установить сайт-заглушку",
+      "summary": "Скрипт установит недостающие пакеты через apt-get и настроит HTTPS-сайт для указанного домена в /var/www/remnasuper-relay. Если действующего сертификата нет, скрипт скачает и запустит acme.sh из официального репозитория GitHub и запросит сертификат Let's Encrypt. Для выпуска и продления nginx будет отдавать проверочные файлы на TCP/80, а cron будет запускать продление. DNS домена должен указывать на релей, TCP/80 должен быть доступен из интернета. Скрипт включит автозапуск nginx и применит SNI-маршрут через reload HAProxy с резервной копией конфига. При создании первого маршрута в штатном конфиге HAProxy будет добавлен IPv4-слушатель TCP/443. При восстановлении сайта с повреждённым сертификатом HTTPS может временно отключиться.",
+      "risk": "mutate",
+      "target": "tui_relay_site",
+      "module": "adapter",
+      "legacy": "lib/menu/relay_traffic.sh",
+      "fields": [
+        {
+          "id": "domain",
+          "label": "Домен сайта-заглушки (FQDN)",
+          "pattern": "[A-Za-z0-9.-]{1,253}",
+          "default": ""
+        }
+      ],
+      "args": [
+        "@domain"
+      ]
+    },
+    {
+      "id": "relay.install",
+      "section": "Релей",
+      "title": "Установить HAProxy и сборщик",
+      "summary": "При необходимости apt-get скачает и установит HAProxy, Python 3, tzdata и less. Если haproxy.cfg отсутствует, apt-get восстановит штатный файл из пакета HAProxy. Если файлов сборщика нет, скрипт загрузит их из репозитория RemnaSuper. При изменении haproxy.cfg будет создана резервная копия. Скрипт настроит локальный Unix-сокет, предложит option contstats, понизит уровень emerg до alert для стандартных направлений в /dev/log, перечитает HAProxy через reload и включит HAProxy и haproxy-traffic.service в автозапуск.",
+      "risk": "mutate",
+      "target": "install_relay_haproxy",
+      "module": "system",
+      "legacy": "lib/menu/relay_traffic.sh"
+    },
+    {
+      "id": "relay.logs.suppress",
+      "section": "Релей",
+      "title": "Отключить рассылку аварийных логов HAProxy",
+      "summary": "Сообщения HAProxy уровня emerg для стандартных направлений в /dev/log останутся в журнале с уровнем alert. При стандартном пороге journald эти сообщения перестанут появляться в терминалах. RemnaSuper сохранит резервную копию и проверит haproxy.cfg перед reload. Если конфигурация изменится, а HAProxy остановлен, он запустится и займёт настроенные порты.",
+      "risk": "mutate",
+      "target": "suppress_relay_wall_messages",
+      "module": "system",
+      "legacy": "lib/menu/relay_traffic.sh"
+    },
+    {
+      "id": "relay.traffic.today",
+      "section": "Статистика",
+      "title": "Сегодня",
+      "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "relay_traffic_command",
+      "args": [
+        "today"
+      ]
+    },
+    {
+      "id": "relay.traffic.yesterday",
+      "section": "Статистика",
+      "title": "Вчера",
+      "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "relay_traffic_command",
+      "args": [
+        "yesterday"
+      ]
+    },
+    {
+      "id": "relay.traffic.month",
+      "section": "Статистика",
+      "title": "Выбранный месяц",
+      "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "relay_traffic_command",
+      "args": [
+        "month",
+        "@month"
+      ],
+      "fields": [
+        {
+          "id": "month",
+          "label": "Месяц в формате ГГГГ-ММ",
+          "pattern": "(?!0000)[0-9]{4}-(0[1-9]|1[0-2])"
+        }
+      ]
+    },
+    {
+      "id": "relay.traffic.daily",
+      "section": "Статистика",
+      "title": "По дням",
+      "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "relay_traffic_command",
+      "args": [
+        "daily",
+        "@month"
+      ],
+      "fields": [
+        {
+          "id": "month",
+          "label": "Месяц в формате ГГГГ-ММ",
+          "pattern": "(?!0000)[0-9]{4}-(0[1-9]|1[0-2])"
+        }
+      ]
+    },
+    {
+      "id": "relay.traffic.total",
+      "section": "Статистика",
+      "title": "Весь период",
+      "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "relay_traffic_command",
+      "args": [
+        "total"
+      ]
+    },
+    {
+      "id": "relay.traffic.backend",
+      "section": "Статистика",
+      "title": "Конкретный backend",
+      "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_relay_backend"
+    },
+    {
+      "id": "relay.traffic.backends",
+      "section": "Статистика",
+      "title": "Обнаруженные backend",
+      "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "relay_traffic_command",
+      "args": [
+        "backends"
+      ]
+    },
+    {
+      "id": "relay.traffic.recent",
+      "section": "Статистика",
+      "title": "Последние измерения",
+      "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "relay_traffic_command",
+      "args": [
+        "recent"
+      ]
+    },
+    {
+      "id": "relay.traffic.status",
+      "section": "Статистика",
+      "title": "Состояние сборщика",
+      "summary": "Отчёт штатного сборщика HAProxy из имеющейся истории SQLite.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "relay_traffic_command",
+      "args": [
+        "status"
+      ]
+    },
+    {
+      "id": "psiphon.instances",
+      "section": "Psiphon",
+      "title": "Подключения Psiphon",
+      "summary": "Показать существующие экземпляры и локальное состояние службы.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_psiphon_instances"
+    },
+    {
+      "id": "psiphon.add",
+      "section": "Psiphon",
+      "title": "Добавить подключение Psiphon",
+      "summary": "Выберите свободный номер. Установщик Chara-Freedom/vps-psiphon настроит отдельный контейнер, службы, SOCKS5-порт и Xray outbound. HTTP-прокси публиковаться не будет.",
+      "risk": "mutate",
+      "module": "adapter",
+      "target": "tui_psiphon_add",
+      "execution": "terminal"
+    },
+    {
+      "id": "psiphon.install.psiphon",
+      "section": "Psiphon",
+      "title": "Установка Psiphon",
+      "summary": "Будет скачан и запущен актуальный установщик из репозитория Chara-Freedom/vps-psiphon для подключения №выбранного экземпляра. Он установит или обновит его Docker-контейнер, systemd-сервис, watchdog, SOCKS5 и Xray outbound для TCP-трафика. HTTP-прокси публиковаться не будет.",
+      "risk": "mutate",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "execution": "terminal",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "install_psiphon"
+      ]
+    },
+    {
+      "id": "psiphon.show.psiphon.status",
+      "section": "Psiphon",
+      "title": "Состояние Psiphon",
+      "summary": "Будут показаны состояния контейнера, сервиса и watchdog, SOCKS5-адрес, регион, выходной IP, оценка страны Google, наличие captcha и объём трафика. Для проверки выполняются сетевые запросы через туннель.",
+      "risk": "external_read",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "show_psiphon_status"
+      ]
+    },
+    {
+      "id": "psiphon.rotate.psiphon",
+      "section": "Psiphon",
+      "title": "Ротация Psiphon",
+      "summary": "Туннель Psiphon будет перезапущен для выбора нового выхода; при настроенном пуле будет выбран следующий регион. Текущие соединения через этот outbound прервутся примерно на 45 секунд.",
+      "risk": "mutate",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "rotate_psiphon"
+      ]
+    },
+    {
+      "id": "psiphon.set.psiphon.region",
+      "section": "Psiphon",
+      "title": "Регион выхода Psiphon",
+      "summary": "После ввода кода страны или auto будет очищена кешированная конфигурация Psiphon и перезапущен туннель. Текущие соединения через этот outbound прервутся примерно на 45 секунд.",
+      "risk": "mutate",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "set_psiphon_region"
+      ]
+    },
+    {
+      "id": "psiphon.set.psiphon.region.pool",
+      "section": "Psiphon",
+      "title": "Пул регионов Psiphon",
+      "summary": "Будет изменён список стран, по которому Psiphon переходит при последующих ротациях. Пустой список отключит пул. Текущий туннель сразу не перезапускается.",
+      "risk": "mutate",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "set_psiphon_region_pool"
+      ]
+    },
+    {
+      "id": "psiphon.set.psiphon.accept.regions",
+      "section": "Psiphon",
+      "title": "Допустимые регионы Psiphon",
+      "summary": "Будет изменён список стран, которые watchdog допускает по оценке Google. Значение any разрешит любую страну, а пустая строка восстановит вычисляемый список по умолчанию. Запрещённые регионы из конфигурации по-прежнему имеют приоритет.",
+      "risk": "mutate",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "set_psiphon_accept_regions"
+      ]
+    },
+    {
+      "id": "psiphon.test.psiphon.speed",
+      "section": "Psiphon",
+      "title": "Проверка скорости Psiphon",
+      "summary": "Через туннель Psiphon будут скачаны тестовые данные Cloudflare: один поток 50 МБ и четыре параллельных потока по 50 МБ. Проверка может занять до нескольких минут и израсходует около 250 МБ трафика.",
+      "risk": "external_read",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "test_psiphon_speed"
+      ]
+    },
+    {
+      "id": "psiphon.show.psiphon.client.logs",
+      "section": "Psiphon",
+      "title": "Логи клиента Psiphon",
+      "summary": "Будет запрошено количество строк и показан конец журнала Docker-контейнера Psiphon. Системные настройки изменены не будут.",
+      "risk": "read_only",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "show_psiphon_client_logs"
+      ]
+    },
+    {
+      "id": "psiphon.show.psiphon.watchdog.logs",
+      "section": "Psiphon",
+      "title": "Логи watchdog Psiphon",
+      "summary": "Будет запрошено количество строк и показан конец журнала проверок и ротаций watchdog. Системные настройки изменены не будут.",
+      "risk": "read_only",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "show_psiphon_watchdog_logs"
+      ]
+    },
+    {
+      "id": "psiphon.show.psiphon.outbound",
+      "section": "Psiphon",
+      "title": "Xray outbound для Psiphon",
+      "summary": "JSON-outbound с тегом выбранного экземпляра будет обновлён из SOCKS5-настроек подключения №выбранного экземпляра и показан для добавления в массив outbounds конфигурации Xray. Работа сервисов и сетевые настройки изменены не будут.",
+      "risk": "mutate",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "show_psiphon_outbound"
+      ]
+    },
+    {
+      "id": "psiphon.uninstall.psiphon",
+      "section": "Psiphon",
+      "title": "Удаление Psiphon",
+      "summary": "Штатная команда vps-psiphon uninstall остановит и удалит сервисы, watchdog, контейнер, конфигурацию, состояние, логи и Xray outbound только подключения №выбранного экземпляра.",
+      "risk": "destructive",
+      "target": "tui_psiphon",
+      "module": "adapter",
+      "legacy": "lib/menu/psiphon.sh",
+      "fields": [
+        {
+          "id": "instance",
+          "label": "Номер подключения Psiphon (1–99)",
+          "pattern": "[1-9][0-9]?",
+          "default": "1"
+        }
+      ],
+      "args": [
+        "@instance",
+        "uninstall_psiphon"
+      ]
+    },
+    {
+      "id": "tor.install.tor",
+      "section": "Tor",
+      "title": "Установка Tor",
+      "summary": "Будут установлены пакеты Tor, добавлена локальная конфигурация SOCKS5 127.0.0.1:9050 и ControlPort 127.0.0.1:9051, включён и перезапущен сервис, проверен выход через сеть Tor и создан готовый Xray outbound для TCP-трафика. Порты доступны только на localhost; RemnaNode должен использовать network_mode: host.",
+      "risk": "mutate",
+      "target": "install_tor",
+      "module": "system",
+      "legacy": "lib/menu/tor.sh"
+    },
+    {
+      "id": "tor.change.tor.ip",
+      "section": "Tor",
+      "title": "Быстрая смена IP Tor",
+      "summary": "Tor получит локальную команду SIGNAL NEWNYM. Текущие Tor-соединения не разрываются, а новые соединения получат новую цепочку; один и тот же выходной IP иногда может быть выбран повторно.",
+      "risk": "mutate",
+      "target": "change_tor_ip",
+      "module": "system",
+      "legacy": "lib/menu/tor.sh"
+    },
+    {
+      "id": "tor.show.tor.outbound",
+      "section": "Tor",
+      "title": "Xray outbound для Tor",
+      "summary": "Будет показан сохранённый JSON-outbound с тегом tor для добавления в массив outbounds конфигурации Xray. Системные настройки изменены не будут.",
+      "risk": "read_only",
+      "target": "show_tor_outbound",
+      "module": "system",
+      "legacy": "lib/menu/tor.sh"
+    },
+    {
+      "id": "tor.uninstall.tor",
+      "section": "Tor",
+      "title": "Удаление Tor",
+      "summary": "Будут удалены конфигурация и Xray outbound, созданные RemnaSuper. Пакеты Tor будут удалены только если их установил RemnaSuper; существовавшая ранее сторонняя установка Tor будет сохранена и перезапущена без настроек RemnaSuper.",
+      "risk": "destructive",
+      "target": "uninstall_tor",
+      "module": "system",
+      "legacy": "lib/menu/tor.sh"
+    },
+    {
+      "id": "warp.status",
+      "section": "WARP",
+      "title": "Состояние WARP",
+      "summary": "Проверить службу, автозапуск и интерфейс.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_warp_status"
+    },
+    {
+      "id": "warp.interface",
+      "section": "WARP",
+      "title": "Интерфейс WireGuard",
+      "summary": "Показать сведения WireGuard и адреса интерфейса.",
+      "risk": "read_only",
+      "module": "system",
+      "target": "show_warp_interface_info"
+    },
+    {
+      "id": "warp.service.start",
+      "section": "WARP",
+      "title": "Запуск warp",
+      "summary": "Будет запущен systemd-интерфейс wg-quick@warp. Если интерфейс не настроен или служба kill-switch недоступна, запуск завершится ошибкой.",
+      "risk": "mutate",
+      "target": "warp_service_action",
+      "module": "system",
+      "legacy": "lib/menu/warp.sh",
+      "args": [
+        "start",
+        "Интерфейс warp запущен."
+      ]
+    },
+    {
+      "id": "warp.service.stop",
+      "section": "WARP",
+      "title": "Остановка warp",
+      "summary": "Интерфейс wg-quick@warp будет остановлен. Текущие соединения через WARP прервутся. Если включён kill-switch, трафик с меткой 51888 будет блокироваться, пока не пойдёт через интерфейс warp.",
+      "risk": "mutate",
+      "target": "warp_service_action",
+      "module": "system",
+      "legacy": "lib/menu/warp.sh",
+      "args": [
+        "stop",
+        "Интерфейс warp остановлен."
+      ]
+    },
+    {
+      "id": "warp.service.restart",
+      "section": "WARP",
+      "title": "Перезапуск warp",
+      "summary": "Интерфейс wg-quick@warp будет перезапущен, текущие соединения через WARP прервутся. Если включён kill-switch, трафик с меткой 51888 будет блокироваться до восстановления интерфейса.",
+      "risk": "mutate",
+      "target": "warp_service_action",
+      "module": "system",
+      "legacy": "lib/menu/warp.sh",
+      "args": [
+        "restart",
+        "Интерфейс warp перезапущен."
+      ]
+    },
+    {
+      "id": "warp.service.enable",
+      "section": "WARP",
+      "title": "Включение автозапуска warp",
+      "summary": "Служба wg-quick@warp будет добавлена в автозапуск systemd. Интерфейс запущен не будет.",
+      "risk": "mutate",
+      "target": "warp_service_action",
+      "module": "system",
+      "legacy": "lib/menu/warp.sh",
+      "args": [
+        "enable",
+        "Автозапуск wg-quick@warp включён."
+      ]
+    },
+    {
+      "id": "warp.service.disable",
+      "section": "WARP",
+      "title": "Отключение автозапуска warp",
+      "summary": "Служба wg-quick@warp будет удалена из автозапуска systemd. Уже запущенный интерфейс продолжит работать.",
+      "risk": "mutate",
+      "target": "warp_service_action",
+      "module": "system",
+      "legacy": "lib/menu/warp.sh",
+      "args": [
+        "disable",
+        "Автозапуск wg-quick@warp отключён."
+      ]
+    },
+    {
+      "id": "warp.install.warp.native",
+      "section": "WARP",
+      "title": "Установка warp",
+      "summary": "Будет загружен актуальный install.sh из distillium/warp-native, проверен и запущен с правами root. Скрипт установит WireGuard и nftables, временно заменит /etc/resolv.conf на DNS 1.1.1.1 и 8.8.8.8, сохранив прежнее содержимое в /etc/resolv.conf.backup (существующий файл будет перезаписан), затем восстановит DNS. Он создаст или перезапишет /etc/wireguard/warp.conf, файлы в /opt/warp-native и /usr/local/bin/warp и /usr/local/bin/wgcf, добавит cron-задачу watchdog и systemd-настройки kill-switch, включит и запустит интерфейс warp. Трафик Xray с меткой 51888 будет блокироваться, если не проходит через warp.",
+      "risk": "mutate",
+      "target": "install_warp_native",
+      "module": "system",
+      "legacy": "lib/menu/warp.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "warp.uninstall.warp.native",
+      "section": "WARP",
+      "title": "Удаление warp",
+      "summary": "Будет загружен актуальный uninstall.sh из distillium/warp-native, проверен и запущен с правами root. Скрипт остановит и отключит wg-quick@warp, удалит /opt/warp-native, /usr/local/bin/warp, /usr/local/bin/wgcf, /etc/wireguard/warp.conf, файлы legacy-аккаунта wgcf в домашнем каталоге root, watchdog, cron-задачу, systemd-настройки и таблицу nftables warp_native. Пакеты WireGuard будут удалены только если не обнаружены другие конфигурации или интерфейсы WireGuard. Работающий через WARP трафик прервётся.",
+      "risk": "destructive",
+      "target": "uninstall_warp_native",
+      "module": "system",
+      "legacy": "lib/menu/warp.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "zapret.install.zapret",
+      "section": "ss-zapret2",
+      "title": "Установка ss-zapret2",
+      "summary": "Будет установлен Docker-контейнер vernette/ss-zapret2 с локальным SOCKS5, проверена его доступность и создан готовый outbound для Xray. При наличии прежнего ss-zapret он будет остановлен, его .env перенесён, а старые файлы сохранены.",
+      "risk": "mutate",
+      "target": "install_zapret",
+      "module": "system",
+      "legacy": "lib/menu/zapret.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "zapret.search.zapret.strategy",
+      "section": "ss-zapret2",
+      "title": "Поиск стратегии ss-zapret2",
+      "summary": "Будут проверены компоненты blockcheck2, обработка zapret2 будет временно остановлена, затем запустится интерактивный поиск nfqws2. Первая рекомендованная стратегия для каждого протокола автоматически попадёт в NFQWS2_OPT, после чего контейнер будет перезапущен.",
+      "risk": "mutate",
+      "target": "search_zapret_strategy",
+      "module": "system",
+      "legacy": "lib/menu/zapret.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "zapret.show.current.zapret.strategy",
+      "section": "ss-zapret2",
+      "title": "Текущая стратегия ss-zapret2",
+      "summary": "Будет прочитан параметр NFQWS2_OPT из /opt/ss-zapret2/config и показана текущая стратегия. Конфигурация и состояние контейнера изменены не будут.",
+      "risk": "read_only",
+      "target": "show_current_zapret_strategy",
+      "module": "system",
+      "legacy": "lib/menu/zapret.sh"
+    },
+    {
+      "id": "zapret.install.zapret.strategy.manually",
+      "section": "ss-zapret2",
+      "title": "Ручная установка стратегии ss-zapret2",
+      "summary": "Будет открыт текстовый редактор с текущим значением NFQWS2_OPT. Введите только параметры стратегии без NFQWS2_OPT= и внешних кавычек, сохраните файл и закройте редактор. Стратегия будет проверена, записана с созданием бэкапа и применена перезапуском контейнера. При ошибке запуска предыдущая конфигурация будет восстановлена автоматически.",
+      "risk": "mutate",
+      "target": "install_zapret_strategy_manually",
+      "module": "system",
+      "legacy": "lib/menu/zapret.sh"
+    },
+    {
+      "id": "zapret.uninstall.ss.zapret",
+      "section": "ss-zapret2",
+      "title": "Удаление ss-zapret2",
+      "summary": "Контейнер ss-zapret2 будет остановлен, Docker-образ и каталог /opt/ss-zapret2 со всеми настройками и Xray outbound будут удалены. Сохранённый каталог прежней версии /opt/ss-zapret затронут не будет.",
+      "risk": "destructive",
+      "target": "uninstall_ss_zapret",
+      "module": "system",
+      "legacy": "lib/menu/zapret.sh"
+    },
+    {
+      "id": "geofiles.install.all.geofiles",
+      "section": "Geofiles",
+      "title": "Установка всех geofiles",
+      "summary": "Будут скачаны наборы Loyalsoldier, xray-routing и Chocolate4U, добавлены их задания ежедневного обновления в cron и volumes для RemnaNode. Если найден docker-compose.yml, перед изменением будет создана резервная копия, а контейнеры будут перезапущены. Активные подключения могут прерваться.",
+      "risk": "mutate",
+      "target": "install_all_geofiles",
+      "module": "geofiles",
+      "legacy": "lib/menu/geofiles.sh"
+    },
+    {
+      "id": "geofiles.install.loyalsoldier.geofiles",
+      "section": "Geofiles",
+      "title": "Установка Loyalsoldier-geofiles",
+      "summary": "Будут скачаны geosite.dat и geoip.dat проекта Loyalsoldier, добавлены задания ежедневного обновления в cron и volumes для RemnaNode. Если найден docker-compose.yml, перед изменением будет создана резервная копия, а контейнеры будут перезапущены. Активные подключения могут прерваться.",
+      "risk": "mutate",
+      "target": "install_loyalsoldier_geofiles",
+      "module": "geofiles",
+      "legacy": "lib/menu/geofiles.sh"
+    },
+    {
+      "id": "geofiles.install.xray.routing.geofiles",
+      "section": "Geofiles",
+      "title": "Установка xray-routing geofiles",
+      "summary": "Будут скачаны geosite.dat и geoip.dat проекта xray-routing, добавлены задания ежедневного обновления в cron и volumes для RemnaNode. Если найден docker-compose.yml, перед изменением будет создана резервная копия, а контейнеры будут перезапущены. Активные подключения могут прерваться.",
+      "risk": "mutate",
+      "target": "install_xray_routing_geofiles",
+      "module": "geofiles",
+      "legacy": "lib/menu/geofiles.sh"
+    },
+    {
+      "id": "geofiles.uninstall.all.geofiles",
+      "section": "Geofiles",
+      "title": "Удаление всех geofiles",
+      "summary": "Сначала уберите ссылки на эти файлы из профиля Xray. Затем будут удалены файлы всех наборов, их задания cron и volumes. Перед изменением docker-compose.yml будет создана резервная копия, после изменения контейнеры будут перезапущены. Активные подключения могут прерваться.",
+      "risk": "mutate",
+      "target": "uninstall_all_geofiles",
+      "module": "geofiles",
+      "legacy": "lib/menu/geofiles.sh"
+    },
+    {
+      "id": "geofiles.uninstall.loyalsoldier.geofiles",
+      "section": "Geofiles",
+      "title": "Удаление Loyalsoldier-geofiles",
+      "summary": "Сначала уберите ссылки на файлы Loyalsoldier из профиля Xray. Будут удалены файлы, задания cron и volumes. Перед изменением docker-compose.yml будет создана резервная копия, после изменения контейнеры будут перезапущены. Активные подключения могут прерваться.",
+      "risk": "mutate",
+      "target": "uninstall_loyalsoldier_geofiles",
+      "module": "geofiles",
+      "legacy": "lib/menu/geofiles.sh"
+    },
+    {
+      "id": "geofiles.uninstall.xray.routing.geofiles",
+      "section": "Geofiles",
+      "title": "Удаление xray-routing geofiles",
+      "summary": "Сначала уберите ссылки на файлы xray-routing из профиля Xray. Будут удалены файлы, задания cron и volumes. Перед изменением docker-compose.yml будет создана резервная копия, после изменения контейнеры будут перезапущены. Активные подключения могут прерваться.",
+      "risk": "mutate",
+      "target": "uninstall_xray_routing_geofiles",
+      "module": "geofiles",
+      "legacy": "lib/menu/geofiles.sh"
+    },
+    {
+      "id": "geofiles.install.security.geofiles",
+      "section": "Geofiles",
+      "title": "Установка Chocolate4U security geofiles",
+      "summary": "Будут скачаны security.dat и security-ip.dat проекта Chocolate4U/Iran-v2ray-rules, добавлены задания ежедневного обновления в cron и volumes для RemnaNode. Если найден docker-compose.yml, перед изменением будет создана резервная копия, а контейнеры будут перезапущены. Активные подключения могут прерваться. Правила Xray будут выведены для ручного добавления.",
+      "risk": "mutate",
+      "target": "install_security_geofiles",
+      "module": "geofiles",
+      "legacy": "lib/menu/geofiles.sh"
+    },
+    {
+      "id": "geofiles.uninstall.security.geofiles",
+      "section": "Geofiles",
+      "title": "Удаление Chocolate4U security geofiles",
+      "summary": "Сначала уберите ссылки на security.dat и security-ip.dat из профиля Xray. Будут удалены оба файла, их задания cron и volumes. Перед изменением docker-compose.yml будет создана резервная копия, после изменения контейнеры будут перезапущены. Активные подключения могут прерваться.",
+      "risk": "mutate",
+      "target": "uninstall_security_geofiles",
+      "module": "geofiles",
+      "legacy": "lib/menu/geofiles.sh"
+    },
+    {
+      "id": "smtp.status",
+      "section": "SMTP",
+      "title": "Состояние SMTP",
+      "summary": "Проверить таблицу nftables и автозапуск. TCP/25 блокируется. TCP/465 и 587 делят пять попыток в час с запасом до пяти подряд.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_smtp_status"
+    },
+    {
+      "id": "smtp.xray",
+      "section": "SMTP",
+      "title": "Правило Xray",
+      "summary": "Просмотреть JSON для ручного добавления в routing.rules.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": "tui_smtp_xray"
+    },
+    {
+      "id": "smtp.rules.enable",
+      "section": "SMTP",
+      "title": "Включить ограничение исходящего SMTP",
+      "summary": "При отсутствии nftables APT обновит списки пакетов и установит его. Служба systemd remnasuper-smtp-egress будет включена в автозапуск. Её таблица nftables заблокирует TCP/25 и ограничит TCP/465 и 587 пятью попытками в час с запасом до пяти попыток подряд. Правила охватывают IPv4 и IPv6 на хосте и мостах Docker.",
+      "risk": "mutate",
+      "target": "tui_smtp",
+      "module": "adapter",
+      "legacy": "lib/menu/smtp_egress.sh",
+      "args": [
+        "enable"
+      ]
+    },
+    {
+      "id": "smtp.rules.disable",
+      "section": "SMTP",
+      "title": "Выключить ограничение исходящего SMTP",
+      "summary": "Служба remnasuper-smtp-egress будет остановлена и исключена из автозапуска. Её таблица nftables будет удалена, включая блокировку TCP/25 и лимит для TCP/465 и 587. Правила Xray управляются в профиле ноды.",
+      "risk": "mutate",
+      "target": "tui_smtp",
+      "module": "adapter",
+      "legacy": "lib/menu/smtp_egress.sh",
+      "args": [
+        "disable"
+      ]
+    },
+    {
+      "id": "accelerator.run.optimize",
+      "section": "Accelerator",
+      "title": "Установка оптимизатора Node Accelerator",
+      "summary": "Будет установлен модуль optimize: XanMod с BBRv3 и системным тюнингом. После успеха VPS автоматически перезагрузится; подключения прервутся.",
+      "risk": "reboot",
+      "target": "run_node_accelerator",
+      "module": "system",
+      "legacy": "lib/menu/node_accelerator.sh",
+      "execution": "terminal",
+      "args": [
+        "optimize"
+      ]
+    },
+    {
+      "id": "accelerator.run.protect",
+      "section": "Accelerator",
+      "title": "Установка защиты Node Accelerator",
+      "summary": "Будет запущен интерактивный модуль protect: nftables, защита от сканирования и флуда, CrowdSec и автоопределение порта node-agent. Внимательно проверьте разрешённые порты и whitelist, чтобы не потерять доступ к серверу.",
+      "risk": "mutate",
+      "target": "run_node_accelerator",
+      "module": "system",
+      "legacy": "lib/menu/node_accelerator.sh",
+      "execution": "terminal",
+      "args": [
+        "protect"
+      ]
+    },
+    {
+      "id": "accelerator.run.diagnose",
+      "section": "Accelerator",
+      "title": "Диагностика Node Accelerator",
+      "summary": "Будет запущен read-only модуль diagnose. Он проверит ядро, BBR, sysctl, лимиты, conntrack, NIC, firewall, CrowdSec, порты и состояние RemnaNode без изменения настроек.",
+      "risk": "external_read",
+      "target": "run_node_accelerator",
+      "module": "system",
+      "legacy": "lib/menu/node_accelerator.sh",
+      "execution": "terminal",
+      "args": [
+        "diagnose"
+      ]
+    },
+    {
+      "id": "accelerator.run.all",
+      "section": "Accelerator",
+      "title": "Установка всех модулей Node Accelerator",
+      "summary": "Будут установлены optimize, protect и diagnose. После успеха VPS автоматически перезагрузится; подключения прервутся. Проверьте порты firewall, чтобы сохранить доступ.",
+      "risk": "reboot",
+      "target": "run_node_accelerator",
+      "module": "system",
+      "legacy": "lib/menu/node_accelerator.sh",
+      "execution": "terminal",
+      "args": [
+        "all"
+      ]
+    },
+    {
+      "id": "accelerator.run.persist",
+      "section": "Accelerator",
+      "title": "Установка CLI Node Accelerator",
+      "summary": "Будут установлены или обновлены постоянные read-only команды na-diagnose и na-report в /usr/local/sbin.",
+      "risk": "mutate",
+      "target": "run_node_accelerator",
+      "module": "system",
+      "legacy": "lib/menu/node_accelerator.sh",
+      "execution": "terminal",
+      "args": [
+        "persist"
+      ]
+    },
+    {
+      "id": "accelerator.run.rollback.optimize",
+      "section": "Accelerator",
+      "title": "Удаление оптимизатора Node Accelerator",
+      "summary": "Будет выполнен штатный rollback optimize: удалены настройки sysctl, лимиты и сервисы тюнинга. XanMod останется установленным; для его удаления upstream требует загрузиться со штатного ядра и использовать NA_REMOVE_XANMOD=1.",
+      "risk": "mutate",
+      "target": "run_node_accelerator",
+      "module": "system",
+      "legacy": "lib/menu/node_accelerator.sh",
+      "execution": "terminal",
+      "args": [
+        "rollback",
+        "optimize"
+      ]
+    },
+    {
+      "id": "accelerator.run.rollback.protect",
+      "section": "Accelerator",
+      "title": "Удаление защиты Node Accelerator",
+      "summary": "Будет выполнен штатный rollback protect: удалены правила na_filter/na_ctguard, а также связанные сервисы и таймеры. CrowdSec останется установленным и продолжит работать.",
+      "risk": "mutate",
+      "target": "run_node_accelerator",
+      "module": "system",
+      "legacy": "lib/menu/node_accelerator.sh",
+      "execution": "terminal",
+      "args": [
+        "rollback",
+        "protect"
+      ]
+    },
+    {
+      "id": "accelerator.run.rollback.all",
+      "section": "Accelerator",
+      "title": "Удаление оптимизатора и защиты Node Accelerator",
+      "summary": "Будет выполнен штатный rollback all для защиты и оптимизатора. XanMod и CrowdSec по правилам upstream останутся установленными; CLI диагностики будет удалён, если активных модулей больше нет.",
+      "risk": "mutate",
+      "target": "run_node_accelerator",
+      "module": "system",
+      "legacy": "lib/menu/node_accelerator.sh",
+      "execution": "terminal",
+      "args": [
+        "rollback",
+        "all"
+      ]
+    },
+    {
+      "id": "diag.ipregion",
+      "section": "Диагностика",
+      "title": "Запуск Davoyan/ipregion",
+      "summary": "Будет скачан и запущен скрипт ipregion из репозитория Davoyan/ipregion.",
+      "risk": "external_read",
+      "target": "run_ipregion",
+      "module": "system",
+      "legacy": "lib/menu/main.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "diag.ipcheck",
+      "section": "Диагностика",
+      "title": "Запуск IP Check Place",
+      "summary": "Будет скачан и запущен диагностический скрипт IP Check Place на английском языке.",
+      "risk": "external_read",
+      "target": "run_ip_check_place",
+      "module": "system",
+      "legacy": "lib/menu/main.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "diag.bench",
+      "section": "Диагностика",
+      "title": "Запуск bench.sh (проверка скорости канала)",
+      "summary": "Будет скачан и запущен скрипт bench.sh для проверки скорости канала.",
+      "risk": "external_read",
+      "target": "run_bench",
+      "module": "system",
+      "legacy": "lib/menu/main.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "diag.dpi",
+      "section": "Диагностика",
+      "title": "Проверка доступности сервисов",
+      "summary": "При необходимости apt-get обновит индекс и установит системный Python, пакет venv для его версии, CA-сертификаты и недостающие утилиты. Эти пакеты останутся на сервере. Будет скачан DPI Detector из репозитория Runnin4ik/dpi-detector, зависимости Python будут установлены во временное окружение. Скрипт запустится от root и выполнит выбранные сетевые проверки по внешним адресам. После выхода временные файлы будут удалены.",
+      "risk": "external_read",
+      "target": "run_dpi_detector",
+      "module": "system",
+      "legacy": "lib/menu/main.sh",
+      "execution": "terminal"
+    },
+    {
+      "id": "logs.xlogs.follow",
+      "section": "Диагностика",
+      "title": "Просмотр xlogs",
+      "summary": "Будет выполнена команда docker exec remnanode xlogs. Для выхода нажмите Ctrl+C.",
+      "risk": "read_only",
+      "target": "tui_follow_xlogs",
+      "module": "adapter",
+      "legacy": "lib/menu/main.sh",
+      "execution": "terminal",
+      "cancel": true
+    },
+    {
+      "id": "logs.access.follow",
+      "section": "Диагностика",
+      "title": "Просмотр логов Xray",
+      "summary": "Будет выполнена команда tail -f /var/log/remnanode/access.log. Для выхода нажмите Ctrl+C.",
+      "risk": "read_only",
+      "target": "tui_follow_access",
+      "module": "adapter",
+      "legacy": "lib/menu/main.sh",
+      "cancel": true
+    },
+    {
+      "id": "diag.pair",
+      "section": "Диагностика",
+      "title": "Парная диагностика двух VPS",
+      "summary": "Недостающие пакеты Python 3, iperf3, UFW и сетевых утилит будут предложены для отдельной постоянной установки через apt-get. UFW должен быть активен с входящей политикой deny: автоматически он не включается. Временно откроются адресные TCP/UDP-порты только для второй VPS; агент закроет собственные правила и слушатели, удалит тестовые файлы и сообщит, если очистка не удалась. Выбор готового профиля даёт ориентир 5, 15 или 30 минут без общего ограничения времени; средний и полный передают по 1 GiB файлами в каждую сторону, плюс TCP/UDP-трафик. Нагрузка может замедлить VPN и расходовать платный трафик. Отчёты сохраняются.",
+      "risk": "mutate",
+      "target": "run_network_diagnostics",
+      "module": "system",
+      "legacy": "lib/menu/main.sh",
+      "cancel": true
+    },
+    {
+      "id": "demo.sample",
+      "section": "Демо",
+      "title": "Пример задания",
+      "summary": "Проверить обработку событий задания без доступа к службам и файлам сервера.",
+      "risk": "read_only",
+      "module": "adapter",
+      "target": ""
+    }
+  ]
+}

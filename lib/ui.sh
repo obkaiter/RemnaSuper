@@ -179,6 +179,14 @@ pause() {
     read -r
 }
 
+request_input() {
+    local destination="$1" prompt="$2" fallback="${3:-}" answer
+
+    printf '%s%s: ' "$prompt" "${fallback:+ [$fallback]}"
+    IFS= read -r answer || return 1
+    printf -v "$destination" '%s' "${answer:-$fallback}"
+}
+
 confirm() {
     local message="$1"
     local reply

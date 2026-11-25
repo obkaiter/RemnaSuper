@@ -204,13 +204,29 @@ show_current_zapret_strategy() {
     pause
 }
 
+edit_zapret_strategy_file() {
+    local path="$1" editor
+    if command -v nano >/dev/null 2>&1; then
+        editor="nano"
+    elif command -v editor >/dev/null 2>&1; then
+        editor="editor"
+    elif command -v vi >/dev/null 2>&1; then
+        editor="vi"
+    else
+        error "Текстовый редактор не найден. Установите nano и повторите попытку."
+        return 1
+    fi
+    info "Открывается редактор $editor. Укажите только параметры стратегии, без NFQWS2_OPT= и внешних кавычек."
+    "$editor" "$path"
+}
+
 install_zapret_strategy_manually() {
     header "Ручная установка стратегии ss-zapret2"
     local config_file="$ZAPRET_DIR/config"
     local strategy_file
     local current_strategy
     local strategy_block
-    local editor
+    local config_hash status
 
     check_docker || { pause; return; }
 
@@ -220,16 +236,8 @@ install_zapret_strategy_manually() {
         return
     fi
 
-    if command -v nano >/dev/null 2>&1; then
-        editor="nano"
-    elif command -v editor >/dev/null 2>&1; then
-        editor="editor"
-    elif command -v vi >/dev/null 2>&1; then
-        editor="vi"
-    else
-        error "Текстовый редактор не найден. Установите nano и повторите попытку."
-        pause
-        return
+    if [[ -n "${REMNASUPER_TUI_JOB:-}" ]]; then
+        config_hash="$(sha256sum -- "$config_file")" || return 1
     fi
 
     if ! current_strategy="$(_read_zapret_strategy_from_config "$config_file")"; then
@@ -246,12 +254,13 @@ install_zapret_strategy_manually() {
     chmod 600 "$strategy_file"
     printf "%s\n" "$current_strategy" > "$strategy_file"
 
-    info "Открывается редактор $editor. Укажите только параметры стратегии, без NFQWS2_OPT= и внешних кавычек."
-    if ! "$editor" "$strategy_file"; then
+    edit_zapret_strategy_file "$strategy_file"
+    status=$?
+    if (( status != 0 )); then
         rm -f "$strategy_file"
         warn "Редактирование отменено. Конфигурация не изменена."
         pause
-        return
+        return "$status"
     fi
 
     if ! grep -q '[^[:space:]]' "$strategy_file"; then
@@ -285,6 +294,15 @@ install_zapret_strategy_manually() {
         info "Стратегия не была изменена."
         pause
         return
+    fi
+
+    if [[ -n "${REMNASUPER_TUI_JOB:-}" ]]; then
+        confirm "Сохранить стратегию и перезапустить ss-zapret2? При сбое будет предпринята попытка отката." ||
+            return 130
+        if [[ "$config_hash" != "$(sha256sum -- "$config_file")" ]]; then
+            error "Конфигурация изменилась. Откройте редактор заново."
+            return 1
+        fi
     fi
 
     ZAPRET_APPLIED_CONFIG_BACKUP=""

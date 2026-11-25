@@ -1,0 +1,85 @@
+name: RemnaSuper TUI
+
+on:
+  push:
+    branches: [tui]
+  pull_request:
+    branches: [tui]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:12
+            name: debian-12
+          - image: debian:13
+            name: debian-13
+          - image: ubuntu:22.04
+            name: ubuntu-22.04
+          - image: ubuntu:24.04
+            name: ubuntu-24.04
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates git build-essential cmake pkg-config libncurses-dev libvterm-dev \
+            nlohmann-json3-dev ncurses-term python3 python3-pexpect shellcheck
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build and stage
+        run: |
+          cmake -S . -B "$RUNNER_TEMP/build" -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build "$RUNNER_TEMP/build" --parallel 2
+          cmake --install "$RUNNER_TEMP/build" --prefix "$RUNNER_TEMP/tui"
+          cp -a lib "$RUNNER_TEMP/tui/"
+          "$RUNNER_TEMP/tui/bin/remnasuper-tui" --self-test
+          test "$("$RUNNER_TEMP/tui/bin/remnasuper-tui" --version)" = "$(cat VERSION)"
+      - name: Check Bash and Python
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          while IFS= read -r -d '' file; do
+            case "$file" in
+              RemnaSuper|*.sh) bash -n "$file" ;;
+            esac
+          done < <(git ls-files -z)
+          python3 -m compileall -q haproxy lib
+      - name: Check ShellCheck
+        continue-on-error: true
+        run: find lib -type f -name '*.sh' -print0 | xargs -0 shellcheck -x RemnaSuper install.sh
+      - name: Check ncurses in a pseudo-terminal
+        env:
+          TERM: xterm-256color
+          LC_ALL: C.UTF-8
+        run: |
+          python3 - <<'PY'
+          import os
+          import pexpect
+
+          executable = os.path.join(os.environ["RUNNER_TEMP"], "tui", "bin", "remnasuper-tui")
+          child = pexpect.spawn(executable, ["--demo"], encoding="utf-8", dimensions=(28, 100))
+          child.expect_exact("Пример задания")
+          child.send("\r")
+          child.expect_exact("Завершено")
+          child.setwinsize(20, 60)
+          child.send("\x1b[21~")
+          child.expect(pexpect.EOF)
+          child.close()
+          assert child.exitstatus == 0
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: remnasuper-tui-${{ matrix.name }}-amd64
+          path: ${{ runner.temp }}/tui/bin/remnasuper-tui

@@ -67,7 +67,11 @@ PACKAGES
         done
     fi
 
-    python3 "$agent_path" run
+    if [[ -n "${REMNASUPER_TUI_JOB:-}" ]]; then
+        python3 -u "$agent_path" run-tui
+    else
+        python3 "$agent_path" run
+    fi
     result=$?
     pause
     return "$result"

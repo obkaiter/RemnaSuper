@@ -330,13 +330,8 @@ change_node_port() {
 
     warn "Будет изменён порт взаимодействия с панелью. Стандартный порт — 2222; в текущей конфигурации RemnaNode указан порт $old_port."
     info "Разрешённый адрес панели в UFW: $source_ip"
-    printf "Введите новый порт вручную или оставьте поле пустым для случайного свободного порта: "
-    if ! IFS= read -r requested_port; then
-        printf "\n"
-        info "Ввод отменён."
-        pause
-        return 1
-    fi
+    request_input requested_port "Введите новый порт или оставьте поле пустым для случайного свободного порта" ||
+        return "$?"
 
     if [ -z "$requested_port" ]; then
         if ! ss_output="$(ss -H -antu 2>/dev/null)"; then

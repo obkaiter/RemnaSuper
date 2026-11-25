@@ -314,8 +314,7 @@ set_psiphon_region() {
     fi
 
     info "Доступные регионы: $PSIPHON_SUPPORTED_REGIONS"
-    printf "Введите код региона или auto для автоматического выбора: "
-    read -r region
+    request_input region "Код региона или auto для автоматического выбора" || return "$?"
     region="$(normalize_psiphon_region_list "$region")"
 
     if [ "$region" != "AUTO" ] && ! psiphon_region_is_supported "$region"; then
@@ -352,8 +351,7 @@ set_psiphon_region_pool() {
 
     info "Доступные регионы: $PSIPHON_SUPPORTED_REGIONS"
     info "При каждой ротации будет выбран следующий регион из пула."
-    printf "Введите коды через пробел или запятую; пустая строка очистит пул: "
-    read -r input
+    request_input input "Введите коды через пробел или запятую. Пустая строка очистит пул" || return "$?"
     regions="$(normalize_psiphon_region_list "$input")"
 
     if ! validate_psiphon_region_pool "$regions"; then
@@ -383,8 +381,7 @@ set_psiphon_accept_regions() {
 
     info "Это страны, которые watchdog допускает по оценке Google."
     info "Введите ISO-коды, any для любых стран или пустую строку для значений по умолчанию."
-    printf "Допустимые регионы: "
-    read -r input
+    request_input input "Коды регионов, any или пустая строка для значений по умолчанию" || return "$?"
     regions="$(normalize_psiphon_region_list "$input")"
 
     if ! validate_psiphon_accept_regions "$regions"; then
@@ -420,8 +417,7 @@ show_psiphon_client_logs() {
     header "Логи клиента Psiphon"
     local lines
 
-    printf "Количество последних строк [50]: "
-    read -r lines
+    request_input lines "Количество последних строк" 50 || return "$?"
     lines="${lines:-50}"
     if [[ ! "$lines" =~ ^[0-9]{1,5}$ ]] || [ "$lines" -lt 1 ] || [ "$lines" -gt 10000 ]; then
         error "Количество строк должно быть целым числом от 1 до 10000."
@@ -439,8 +435,7 @@ show_psiphon_watchdog_logs() {
     header "Логи watchdog Psiphon"
     local lines
 
-    printf "Количество последних строк [30]: "
-    read -r lines
+    request_input lines "Количество последних строк" 30 || return "$?"
     lines="${lines:-30}"
     if [[ ! "$lines" =~ ^[0-9]{1,5}$ ]] || [ "$lines" -lt 1 ] || [ "$lines" -gt 10000 ]; then
         error "Количество строк должно быть целым числом от 1 до 10000."

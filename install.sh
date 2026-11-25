@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == --tui ]]; then
+    shift
+    exec bash "$(dirname -- "${BASH_SOURCE[0]}")/install-tui.sh" "$@"
+fi
+
 INSTALL_DIR="/opt/RemnaSuper"
 COMMAND_LINK="/usr/local/bin/rs"
 GITHUB_REPO="SP1K33/RemnaSuper"

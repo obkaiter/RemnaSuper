@@ -56,6 +56,10 @@ EOF
         return 1
     fi
 
+    if [[ -n "${REMNASUPER_TUI_JOB:-}" ]] && ! validate_logrotate_change "$tmp_file"; then
+        rm -f -- "$tmp_file"
+        return 1
+    fi
     if ! chmod 644 "$tmp_file" || ! mv -f -- "$tmp_file" "$ROTATE_CONF"; then
         rm -f -- "$tmp_file"
         error "Не удалось сохранить конфигурацию logrotate."
@@ -63,10 +67,20 @@ EOF
     fi
 }
 
+choose_logrotate_profile() {
+    select_menu "$1" 0 show_logrotate_menu
+}
+
+edit_logrotate_config() {
+    check_command nano || return 1
+    info "Редактирование: $ROTATE_CONF"
+    nano "$ROTATE_CONF"
+}
+
 setup_logrotate() {
     local profile
 
-    select_menu profile 0 show_logrotate_menu || return
+    choose_logrotate_profile profile || return "$?"
     [[ "$profile" != 0 ]] || return 0
     if ! mkdir -p "$(dirname "$ROTATE_CONF")"; then
         error "Не удалось создать каталог для конфигурации logrotate."
@@ -87,9 +101,7 @@ setup_logrotate() {
             success "Профиль 'Высокая нагрузка' применен."
             ;;
         4)
-            check_command nano || { pause; return; }
-            info "Редактирование: $ROTATE_CONF"
-            nano "$ROTATE_CONF"
+            edit_logrotate_config || { pause; return "$?"; }
             success "Сохранено."
             ;;
     esac

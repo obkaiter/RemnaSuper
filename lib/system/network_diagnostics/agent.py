@@ -2,6 +2,7 @@
 """Interactive two-VPS network diagnostics and autonomous recovery entry point."""
 
 import getpass
+import io
 import ipaddress
 import json
 import os
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -68,7 +70,22 @@ class SessionStop:
                 (session.control is not None and session.control.stop.is_set()))
 
 
+def tui_prompt(kind, message, **kwargs):
+    sys.stdout.flush()
+    from tui_protocol import ask
+    value = ask(os.environ["REMNASUPER_TUI_JOB"], kind, message, **kwargs)
+    if value is None:
+        raise EOFError("Ввод отменён")
+    return value
+
+
 def choose_menu(title, default, *options):
+    if os.environ.get("REMNASUPER_TUI_JOB"):
+        choices = [{"value": options[i], "label": options[i + 1]} for i in range(0, len(options), 2)]
+        selected = tui_prompt("choice", title, default=default, choices=choices)
+        if selected not in {item["value"] for item in choices}:
+            raise ValueError("Неизвестный вариант")
+        return selected
     lib_dir = Path(__file__).resolve().parents[2]
     sys.stdout.flush()
     result = subprocess.run(
@@ -83,8 +100,14 @@ def choose_menu(title, default, *options):
 
 
 def peer_ip():
-    show_local_ips()
-    value = input("IP второй VPS: ").strip()
+    if os.environ.get("REMNASUPER_TUI_JOB"):
+        summary = io.StringIO()
+        with redirect_stdout(summary):
+            show_local_ips()
+        value = tui_prompt("text", summary.getvalue() + "\nIP второй VPS").strip()
+    else:
+        show_local_ips()
+        value = input("IP второй VPS: ").strip()
     address = ipaddress.ip_address(value)
     if address.is_loopback or address.is_multicast or address.is_unspecified:
         raise ValueError("Нужен маршрутизируемый адрес второй VPS")
@@ -837,6 +860,9 @@ def run():
     lock = acquire_lock(nonblocking=True)
     session = None
     success = False
+    cancelled = False
+    cleanup_failed = False
+    tui = bool(os.environ.get("REMNASUPER_TUI_JOB"))
     try:
         problems = recover_stale()
         if problems:
@@ -855,24 +881,37 @@ def run():
         print("TCP-порт управления на VPS A: %d" % port)
         if role == "1":
             config = settings()
-            show_load_plan(config)
+            if tui:
+                summary = io.StringIO()
+                with redirect_stdout(summary):
+                    show_load_plan(config)
+                tui_prompt("confirm", summary.getvalue())
+            else:
+                show_load_plan(config)
             pre = preflight(peer, config["file_bytes"], port)
             family = socket.AF_INET6 if ":" in peer else socket.AF_INET
             with socket.socket(family, socket.SOCK_STREAM) as probe:
                 probe.bind(("::" if family == socket.AF_INET6 else "0.0.0.0", port))
             sid, secret = secrets.token_hex(6), secrets.token_bytes(32)
             session = Session("A", sid, peer, secret, config, pre, port)
-            session.prepare()
-            print("\nID сессии: %s" % sid)
-            print("Одноразовый секрет для ввода на VPS B: %s" % secret.hex())
-            print("Секрет не будет записан в отчёт. Передайте его по доверенному каналу.")
+            if tui:
+                tui_prompt("reveal", "Передайте параметры по доверенному каналу. После просмотра нажмите Enter, затем подключите VPS B.",
+                           sensitive="ID сессии: %s\nОдноразовый секрет: %s" % (sid, secret.hex()))
+                session.prepare()
+            else:
+                session.prepare()
+                print("\nID сессии: %s" % sid)
+                print("Одноразовый секрет для ввода на VPS B: %s" % secret.hex())
+                print("Секрет не будет записан в отчёт. Передайте его по доверенному каналу.")
             session.connect_a()
             session.coordinate()
         else:
-            sid = input("ID сессии (12 шестнадцатеричных символов): ").strip().lower()
+            sid = (tui_prompt("text", "ID сессии (12 шестнадцатеричных символов)") if tui
+                   else input("ID сессии (12 шестнадцатеричных символов): ")).strip().lower()
             if not re.fullmatch(r"[a-f0-9]{12}", sid):
                 raise ValueError("Неверный ID сессии")
-            secret_hex = getpass.getpass("Одноразовый секрет (без эха): ").strip()
+            secret_hex = (tui_prompt("secret", "Одноразовый секрет") if tui
+                          else getpass.getpass("Одноразовый секрет (без эха): ")).strip()
             if not re.fullmatch(r"[a-fA-F0-9]{64}", secret_hex):
                 raise ValueError("Неверный формат секрета")
             secret = bytes.fromhex(secret_hex)
@@ -885,7 +924,8 @@ def run():
             session.worker()
         print("Диагностика завершена: %s" % session.report["status"])
         success = session.report["status"] == "ЗАВЕРШЕНО"
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
+        cancelled = True
         print("\nДиагностика прервана пользователем")
         if session and session.control and not session.control.stop.is_set():
             try:
@@ -904,12 +944,13 @@ def run():
         if session:
             session.report["status"] = "С ОШИБКАМИ"
     finally:
-        if session:
+        if session and (not tui or session.resources):
             session.finish()
             if session.report["cleanup_errors"]:
                 success = False
+                cleanup_failed = True
         os.close(lock)
-    return 0 if success else 1
+    return 76 if cleanup_failed and tui else 0 if success else 130 if cancelled and tui else 1
 
 
 def main():
@@ -917,6 +958,9 @@ def main():
         raise ValueError("Нужна команда run, service, recover или watch")
     mode = sys.argv[1]
     if mode == "run" and len(sys.argv) == 2:
+        sys.exit(run())
+    elif mode == "run-tui" and len(sys.argv) == 2 and os.environ.get("REMNASUPER_TUI_JOB"):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
         sys.exit(run())
     elif mode == "service" and len(sys.argv) == 7:
         path, kind, stage, port, size = sys.argv[2:]

@@ -99,7 +99,7 @@ setup_ssh_key_login() (
         return 1
     fi
 
-    read -rp "Пользователь SSH [${SUDO_USER:-root}]: " login || return 1
+    request_input login "Пользователь SSH" "${SUDO_USER:-root}" || return "$?"
     login="${login:-${SUDO_USER:-root}}"
     if [[ ! "$login" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$ ]] || ! account="$(getent passwd "$login")"; then
         error "Пользователь SSH не найден."
@@ -113,8 +113,8 @@ setup_ssh_key_login() (
     auth_keys="$home/.ssh/authorized_keys"
 
     read -r _ _ default_host default_port <<< "${SSH_CONNECTION:-}"
-    read -rp "Адрес сервера, доступный с вашего компьютера [${default_host:-IP или домен}]: " host || return 1
-    read -rp "Порт SSH [${default_port:-22}]: " port || return 1
+    request_input host "Адрес сервера, доступный с вашего компьютера (IP или домен)" "$default_host" || return "$?"
+    request_input port "Порт SSH" "${default_port:-22}" || return "$?"
     host="${host:-$default_host}"
     port="${port:-${default_port:-22}}"
     if [[ ! "$host" =~ ^[a-zA-Z0-9:][a-zA-Z0-9.:%_-]*$ ||
@@ -126,7 +126,7 @@ setup_ssh_key_login() (
     default_folder="${default_folder:0:64}"
     [[ "$default_folder" == *. ]] && default_folder="${default_folder%.}-"
     while true; do
-        read -rp "Имя новой папки для ключа внутри ~/.ssh [$default_folder]: " key_folder || return 1
+        request_input key_folder "Имя новой папки для ключа внутри ~/.ssh" "$default_folder" || return "$?"
         key_folder="${key_folder:-$default_folder}"
         folder_stem="${key_folder%%.*}"
         if [[ ! "$key_folder" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$ || "$key_folder" == *. ]]; then
@@ -234,6 +234,10 @@ EOF
         ! grep -qx 'pubkeyauthentication yes' <<< "$effective_config"; then
         error "Проверка новой конфигурации SSH не прошла."
         return 1
+    fi
+    if [[ -n "${REMNASUPER_TUI_JOB:-}" ]]; then
+        confirm "Вход с новым ключом проверен. Отключить вход по паролю и перечитать конфигурацию ssh.service?" ||
+            return 130
     fi
     if ! cmp -s -- "$restore_file" "$SSHD_CONFIG"; then
         error "Конфигурация SSH была изменена во время настройки. Попробуйте ещё раз."
