@@ -26,6 +26,7 @@ SECURITY_GEOFILES_URL="https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-
 SMTP_EGRESS_SERVICE="remnasuper-smtp-egress.service"
 SMTP_EGRESS_UNIT="/etc/systemd/system/$SMTP_EGRESS_SERVICE"
 SMTP_EGRESS_RULES="$INSTALL_DIR/lib/system/smtp-egress.nft"
+SMTP_EGRESS_LOCK="$INSTALL_DIR/.smtp-egress.lock"
 LOG_DIR="/var/log/remnanode"
 COMPOSE_FILE="$NODE_DIR/docker-compose.yml"
 NODE_NGINX_CONF="$NODE_DIR/nginx.conf"

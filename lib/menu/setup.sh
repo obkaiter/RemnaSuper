@@ -68,9 +68,7 @@ initial_setup_menu() {
                 "В каждый TLS server-блок с доменным server_name в /opt/remnanode/nginx.conf будет добавлен заголовок Strict-Transport-Security со сроком 1 год и includeSubDomains. Перед заменой файла будет создана резервная копия, конфигурация nginx будет проверена в контейнере, затем контейнеры RemnaNode будут перезапущены. Текущие подключения могут кратковременно прерваться." \
                 enable_tls_hsts ;;
             12) geofiles_menu ;;
-            13) run_action "Ограничить исходящий SMTP" \
-                "При отсутствии nftables APT обновит списки пакетов и установит его. Служба systemd remnasuper-smtp-egress будет включена в автозапуск и сразу применит правила nftables для IPv4 и IPv6 с хоста и через мосты Docker. TCP/25 будет заблокирован. На TCP/465 и 587 будет действовать общий лимит в 5 попыток подключения в час с запасом до 5 попыток подряд." \
-                limit_outbound_smtp ;;
+            13) smtp_egress_menu ;;
             14) node_accelerator_menu ;;
             0) return ;;
         esac
