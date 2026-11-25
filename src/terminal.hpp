@@ -55,7 +55,7 @@ public:
     short poll_events() const;
     int status() const { return status_; }
     std::vector<std::string> snapshot() const;
-    void scroll(int lines);
+    void scroll_history(int lines);
 private:
     static void queue(const char *bytes, size_t size, void *context);
     static int property(VTermProp prop, VTermValue *value, void *context);

@@ -219,6 +219,8 @@ void Job::consume_events(const std::string &bytes) {
                 append(status_ + " · код " + std::to_string(code));
             } else if (type == "selection") {
                 selection_ = event.at("message").get<std::string>();
+            } else if (type == "artifact") {
+                append("Файл отчёта: " + event.at("path").get<std::string>());
             } else if (type == "report_text") {
                 if (report_text_.size() < 32768) report_text_ += event.at("message").get<std::string>() + "\n";
             } else if (type == "report_header") {

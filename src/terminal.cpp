@@ -297,7 +297,7 @@ int Pty::record_line(int cols, const VTermScreenCell *cells, void *context) {
     return 1;
 }
 
-void Pty::scroll(int lines) {
+void Pty::scroll_history(int lines) {
     history_offset_ = std::clamp(static_cast<long>(history_offset_) + lines, 0L, static_cast<long>(history_.size()));
 }
 

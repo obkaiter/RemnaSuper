@@ -73,6 +73,11 @@ void paragraph(WINDOW *win, int top, int x, int width, int height, const std::st
 }
 
 struct Dialog {
+    Dialog(std::string title, std::string description, bool choose = false, bool accept = false,
+           bool editable = false, bool secret = false, std::wstring value = {})
+        : title(std::move(title)), description(std::move(description)), choose(choose), accept(accept),
+          editable(editable), secret(secret), value(std::move(value)) {}
+
     std::string title;
     std::string description;
     bool choose = false;
@@ -507,7 +512,7 @@ private:
         if (pty) {
             if (literal_prefix_) {
                 if (key.special && (key.value == KEY_PPAGE || key.value == KEY_NPAGE)) {
-                    pty->scroll(key.value == KEY_PPAGE ? std::max(1, LINES - 2) : -std::max(1, LINES - 2));
+                    pty->scroll_history(key.value == KEY_PPAGE ? std::max(1, LINES - 2) : -std::max(1, LINES - 2));
                     literal_prefix_.reset();
                     return;
                 }

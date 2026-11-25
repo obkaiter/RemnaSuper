@@ -79,6 +79,16 @@ def tui_prompt(kind, message, **kwargs):
     return value
 
 
+def tui_event(kind, **data):
+    job = os.environ.get("REMNASUPER_TUI_JOB")
+    if job:
+        from tui_protocol import emit
+        try:
+            emit(job, kind, **data)
+        except OSError:
+            pass
+
+
 def choose_menu(title, default, *options):
     if os.environ.get("REMNASUPER_TUI_JOB"):
         choices = [{"value": options[i], "label": options[i + 1]} for i in range(0, len(options), 2)]
@@ -265,9 +275,13 @@ class Session:
         self.report["stages"].append(stage)
         write_reports(self.report_dir, self.report)
         value = stage["metrics"]
-        print("%s %s: %s%s" % (stage["kind"], stage["direction"], stage["status"],
-                               " — %.1f Mbps" % value["receiver_mbps"]
-                               if value.get("receiver_mbps") is not None else ""))
+        message = "%s %s: %s%s" % (stage["kind"], stage["direction"], stage["status"],
+                                   " — %.1f Mbps" % value["receiver_mbps"]
+                                   if value.get("receiver_mbps") is not None else "")
+        if os.environ.get("REMNASUPER_TUI_JOB"):
+            tui_event("step", message=message, phase=stage["kind"], direction=stage["direction"])
+        else:
+            print(message)
 
     def connect_a(self):
         self.resources.open_port(self.port, "tcp", "ctrl")
@@ -288,11 +302,13 @@ class Session:
                                (address[0], self.peer))
         conn.settimeout(10)
         self.control = authenticate_server(conn, self.sid, self.secret)
+        tui_event("step", phase="authentication", message="Вторая VPS прошла аутентификацию.")
 
     def connect_b(self):
         conn = socket.create_connection((self.peer, self.port), timeout=15)
         conn.settimeout(10)
         self.control = authenticate_client(conn, self.sid, self.secret)
+        tui_event("step", phase="authentication", message="Координатор прошёл аутентификацию.")
 
     def client(self, kind, stage, port, params):
         self.ensure_alive()
@@ -751,6 +767,20 @@ class Session:
             print("%s: %s — %s" % (label, value, entry["status"]))
         print("Отчёты: %s и %s" % (self.report_dir / "summary.md",
                                    self.report_dir / "result.json"))
+        if os.environ.get("REMNASUPER_TUI_JOB"):
+            tui_event("report_text", message="Профиль: %s · Статус: %s" %
+                      (self.config["profile"], self.report["status"]))
+            tui_event("report_header", columns=["Этап", "Направление", "Статус", "Секунды", "Мбит/с"])
+            for stage in self.report["stages"][:1000]:
+                metrics = stage["metrics"]
+                duration = stage.get("duration")
+                rate = metrics.get("receiver_mbps")
+                tui_event("report_row", cells=[
+                    str(stage["kind"]), str(stage["direction"]), str(stage["status"]),
+                    "%.2f" % duration if isinstance(duration, (int, float)) else "—",
+                    "%.2f" % rate if isinstance(rate, (int, float)) else "—"])
+            for filename in ("summary.md", "result.json"):
+                tui_event("artifact", path=str(self.report_dir / filename), sensitivity="operator")
 
 
 def valid_config(value):
@@ -893,13 +923,12 @@ def run():
             with socket.socket(family, socket.SOCK_STREAM) as probe:
                 probe.bind(("::" if family == socket.AF_INET6 else "0.0.0.0", port))
             sid, secret = secrets.token_hex(6), secrets.token_bytes(32)
-            session = Session("A", sid, peer, secret, config, pre, port)
             if tui:
                 tui_prompt("reveal", "Передайте параметры по доверенному каналу. После просмотра нажмите Enter, затем подключите VPS B.",
                            sensitive="ID сессии: %s\nОдноразовый секрет: %s" % (sid, secret.hex()))
-                session.prepare()
-            else:
-                session.prepare()
+            session = Session("A", sid, peer, secret, config, pre, port)
+            session.prepare()
+            if not tui:
                 print("\nID сессии: %s" % sid)
                 print("Одноразовый секрет для ввода на VPS B: %s" % secret.hex())
                 print("Секрет не будет записан в отчёт. Передайте его по доверенному каналу.")
@@ -944,12 +973,14 @@ def run():
         if session:
             session.report["status"] = "С ОШИБКАМИ"
     finally:
-        if session and (not tui or session.resources):
-            session.finish()
-            if session.report["cleanup_errors"]:
-                success = False
-                cleanup_failed = True
-        os.close(lock)
+        try:
+            if session:
+                session.finish()
+                if session.report["cleanup_errors"]:
+                    success = False
+                    cleanup_failed = True
+        finally:
+            os.close(lock)
     return 76 if cleanup_failed and tui else 0 if success else 130 if cancelled and tui else 1
 
 

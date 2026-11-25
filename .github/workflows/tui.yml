@@ -76,6 +76,39 @@ jobs:
       - name: Check ShellCheck
         continue-on-error: true
         run: find lib -type f -name '*.sh' -print0 | xargs -0 shellcheck -x RemnaSuper install.sh
+      - name: Check HAProxy report formats
+        run: |
+          PYTHONPATH=haproxy/collector python3 - <<'PY'
+          import json
+          import subprocess
+          import sys
+          import tempfile
+          from contextlib import closing
+          from pathlib import Path
+
+          from database import open_database
+
+          script = Path("haproxy/collector/collector.py").resolve()
+          with tempfile.TemporaryDirectory() as path:
+              root = Path(path)
+              (root / "config").mkdir()
+              (root / "database").mkdir()
+              (root / "config/config.json").write_text("{}", encoding="utf-8")
+              with closing(open_database(root / "database/traffic.sqlite3", write=True)) as database:
+                  with database:
+                      database.execute("INSERT INTO backends VALUES ('node_a',0,60,'UP',1)")
+                      database.execute("INSERT INTO backends VALUES ('node_b',0,60,'DOWN',0)")
+                      database.execute("INSERT INTO traffic_intervals VALUES (0,60,'2026-01-01','node_a',7500000,0)")
+                      database.execute("INSERT INTO traffic_intervals VALUES (0,60,'2026-01-01','node_b',0,7500000)")
+              cmd = [sys.executable, str(script), "--data-root", path]
+              report = json.loads(subprocess.check_output([*cmd, "--format", "json", "total"], text=True))
+              assert report["v"] == 1
+              table = next(part for part in report["sections"] if "rows" in part)
+              assert [row[0] for row in table["rows"]] == ["node_a", "node_b", "ИТОГО"]
+              assert table["rows"][-1][-1] == "2.00"
+              text = subprocess.check_output([*cmd, "total"], text=True)
+              assert "ИТОГО" in text and "2.00" in text
+          PY
       - name: Check ncurses in a pseudo-terminal
         env:
           TERM: xterm-256color
