@@ -75,6 +75,10 @@ VTermKey terminal_key(wint_t key) {
 }
 }
 
+attr_t theme(ThemeColor role, attr_t fallback) {
+    return has_colors() ? COLOR_PAIR(static_cast<short>(role)) : fallback;
+}
+
 std::wstring wide(const std::string &value) {
     std::wstring output;
     std::mbstate_t state{};
@@ -129,27 +133,48 @@ Terminal::Terminal() {
     if (!term || std::string_view(term) == "dumb" || !(screen_ = newterm(nullptr, stdout, stdin))) {
         throw std::runtime_error("Терминал не поддерживается. Проверьте TERM и terminfo.");
     }
+    input_ = newpad(1, 1);
+    if (!input_) {
+        endwin();
+        delscreen(screen_);
+        tcsetattr(STDIN_FILENO, TCSANOW, &original_);
+        throw std::runtime_error("Не удалось открыть ввод терминала.");
+    }
     raw();
     noecho();
     nonl();
-    keypad(stdscr, TRUE);
-    nodelay(stdscr, TRUE);
+    keypad(input_, TRUE);
+    nodelay(input_, TRUE);
     set_escdelay(25);
     curs_set(0);
+    define_key("\033[A", KEY_UP);
+    define_key("\033[B", KEY_DOWN);
+    define_key("\033[C", KEY_RIGHT);
+    define_key("\033[D", KEY_LEFT);
     define_key("\033[200~", paste_start);
     define_key("\033[201~", paste_end);
     fputs("\033[?2004h", stdout);
     fflush(stdout);
     if (has_colors() && start_color() == OK) {
         use_default_colors();
-        const short background = COLORS >= 256 ? 18 : COLOR_BLUE;
-        const short selection = COLORS >= 256 ? 80 : COLOR_CYAN;
-        const short foreground = COLORS >= 256 ? 255 : COLOR_WHITE;
-        const short modal = COLORS >= 256 ? 252 : COLOR_WHITE;
-        init_pair(1, foreground, background);
-        init_pair(2, COLOR_BLACK, selection);
-        init_pair(3, COLOR_BLACK, modal);
-        init_pair(4, selection, background);
+        const bool indexed = COLORS >= 256;
+        const short background = indexed ? 236 : COLOR_BLACK;
+        const short surface = indexed ? 234 : COLOR_BLACK;
+        const short foreground = indexed ? 231 : COLOR_WHITE;
+        const short pink = indexed ? 212 : COLOR_RED;
+        const short purple = indexed ? 183 : COLOR_BLUE;
+        const short green = indexed ? 121 : COLOR_GREEN;
+        const short muted = indexed ? 103 : COLOR_WHITE;
+        const auto set_pair = [](ThemeColor role, short fg, short bg) {
+            init_pair(static_cast<short>(role), fg, bg);
+        };
+        set_pair(ThemeColor::panel, foreground, background);
+        set_pair(ThemeColor::selection, indexed ? surface : foreground, pink);
+        set_pair(ThemeColor::dialog, foreground, surface);
+        set_pair(ThemeColor::dialog_focus, indexed ? surface : foreground, purple);
+        set_pair(ThemeColor::chrome, foreground, surface);
+        set_pair(ThemeColor::dialog_title, green, surface);
+        set_pair(ThemeColor::frame, muted, background);
         for (short fg = 0; fg < 9; ++fg) {
             for (short bg = 0; bg < 9; ++bg) {
                 const short pair = 8 + fg * 9 + bg;
@@ -163,13 +188,14 @@ Terminal::~Terminal() {
     fputs("\033[?2004l", stdout);
     fflush(stdout);
     curs_set(1);
+    delwin(input_);
     endwin();
     delscreen(screen_);
     tcsetattr(STDIN_FILENO, TCSANOW, &original_);
 }
 
 bool Terminal::read(Key &key) {
-    const int status = get_wch(&key.value);
+    const int status = wget_wch(input_, &key.value);
     key.special = status == KEY_CODE_YES;
     return status != ERR;
 }

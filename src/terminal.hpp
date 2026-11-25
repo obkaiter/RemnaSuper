@@ -17,6 +17,17 @@ struct Key {
 constexpr int paste_start = KEY_MAX + 1;
 constexpr int paste_end = KEY_MAX + 2;
 
+enum class ThemeColor : short {
+    panel = 1,
+    selection,
+    dialog,
+    dialog_focus,
+    chrome,
+    dialog_title,
+    frame
+};
+
+attr_t theme(ThemeColor role, attr_t fallback = A_NORMAL);
 std::wstring wide(const std::string &value);
 std::string utf8(const std::wstring &value);
 void draw_text(WINDOW *window, int y, int x, int width, const std::wstring &value);
@@ -33,6 +44,7 @@ public:
 private:
     termios original_{};
     SCREEN *screen_ = nullptr;
+    WINDOW *input_ = nullptr;
 };
 
 class Pty {

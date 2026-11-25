@@ -53,7 +53,8 @@ curl -fsSL https://raw.githubusercontent.com/obkaiter/RemnaSuper/tui/install-tui
 | Bash | `sudo rs` | `/opt/RemnaSuper` | `main` |
 | ncurses | `sudo rs-tui` | `/opt/RemnaSuper-tui/current` | `tui` |
 
-![RemnaSuper TUI в xterm 100×28](docs/tui-100x28.png)
+Тёмная палитра с розовым выделением и фиолетовым фокусом в диалогах основана
+на теме [Dracula для Midnight Commander](https://github.com/dracula/midnight-commander).
 
 Обе редакции используют одни RemnaNode, конфигурации служб и историю HAProxy.
 Операции записи в ncurses имеют свою общую блокировку и продолжают использовать
@@ -68,6 +69,9 @@ curl -fsSL https://raw.githubusercontent.com/obkaiter/RemnaSuper/tui/install-tui
 `F2` меняет столбец сортировки, `Shift+←` / `Shift+→` прокручивают
 длинные строки. Во встроенном редакторе `Ctrl+S` подтверждает черновик,
 `Esc` отменяет ввод.
+
+В окне подтверждения `←` / `→` или `Tab` переключают кнопки,
+а `Enter` активирует выбранную. По умолчанию выделена «Отмена».
 
 `Ctrl+O` открывает постоянную интерактивную оболочку. Повторное
 `Ctrl+O` возвращает к текущему экрану. `exit` завершает оболочку.

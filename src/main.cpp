@@ -8,9 +8,11 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>
 #include <cwctype>
 #include <fstream>
 #include <form.h>
+#include <initializer_list>
 #include <langinfo.h>
 #include <menu.h>
 #include <optional>
@@ -21,6 +23,7 @@
 #include <sys/wait.h>
 #include <tuple>
 #include <unistd.h>
+#include <utility>
 
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -37,10 +40,6 @@ using Item = std::unique_ptr<ITEM, decltype(&free_item)>;
 using Menu = std::unique_ptr<MENU, decltype(&free_menu)>;
 
 constexpr int inner_width = 74;
-
-attr_t theme(short pair, attr_t fallback = A_NORMAL) {
-    return has_colors() ? COLOR_PAIR(pair) : fallback;
-}
 
 bool enter(Key key) {
     return key.special ? key.value == KEY_ENTER : key.value == '\r' || key.value == '\n';
@@ -675,9 +674,11 @@ private:
         if (!win) return;
         Panel panel(new_panel(win.get()), del_panel);
         if (!panel) return;
-        wbkgd(win.get(), ' ' | theme(3));
+        wbkgd(win.get(), ' ' | theme(ThemeColor::dialog));
         box(win.get(), 0, 0);
+        wattron(win.get(), theme(ThemeColor::dialog_title, A_BOLD));
         draw_text(win.get(), 0, 2, width - 4, L" " + wide(d.title) + L" ");
+        wattroff(win.get(), theme(ThemeColor::dialog_title, A_BOLD));
         paragraph(win.get(), 2, 2, width - 4, (d.edit_lines || !d.choices.empty()) ? 2 : height - 6,
                   d.description, d.offset);
         if (!d.choices.empty()) {
@@ -687,10 +688,10 @@ private:
             const size_t row = selected == matches.end() ? 0 : selected - matches.begin();
             const size_t start = row >= room ? row - room + 1 : 0;
             for (size_t i = start; i < start + room && i < matches.size(); ++i) {
-                if (matches[i] == d.selected) wattron(win.get(), A_REVERSE);
+                if (matches[i] == d.selected) wattron(win.get(), theme(ThemeColor::dialog_focus, A_REVERSE));
                 draw_text(win.get(), 4 + static_cast<int>(i - start), 2, width - 4,
                           wide(d.choices[matches[i]].at("label").get<std::string>()));
-                wattroff(win.get(), A_REVERSE);
+                wattroff(win.get(), theme(ThemeColor::dialog_focus, A_REVERSE));
             }
             draw_text(win.get(), height - 2, 2, width - 4, d.choice_filter.empty() ?
                       L"Enter — выбрать · Ввод текста — поиск" : L"Поиск: " + d.choice_filter);
@@ -739,7 +740,8 @@ private:
             draw_text(win.get(), height - 2, 2, width - 4,
                       d.hidden.empty() ? L"Enter — продолжить · Esc — отменить" : L"Enter — показать · Esc — отменить");
         } else if (d.choose && !d.edit_lines && d.choices.empty() && !d.editable) {
-            Item cancel(new_item("Отмена", ""), free_item), apply(new_item("Применить", ""), free_item);
+            draw_text(win.get(), height - 3, 2, width - 4, L"←/→ или Tab — выбор · Enter — OK");
+            Item cancel(new_item("Отмена", ""), free_item), apply(new_item("Подтвердить", ""), free_item);
             ITEM *items[]{cancel.get(), apply.get(), nullptr};
             Menu menu(cancel && apply ? new_menu(items) : nullptr, free_menu);
             Window row(derwin(win.get(), 1, width - 4, height - 2, 2), delwin);
@@ -748,8 +750,8 @@ private:
                 set_menu_sub(menu.get(), row.get());
                 set_menu_format(menu.get(), 1, 2);
                 set_menu_mark(menu.get(), "");
-                set_menu_fore(menu.get(), A_REVERSE | A_BOLD);
-                set_menu_back(menu.get(), theme(3));
+                set_menu_fore(menu.get(), theme(ThemeColor::dialog_focus, A_REVERSE) | A_BOLD);
+                set_menu_back(menu.get(), theme(ThemeColor::dialog));
                 set_current_item(menu.get(), d.accept ? apply.get() : cancel.get());
                 if (post_menu(menu.get()) == E_OK) {
                     touchwin(win.get());
@@ -760,7 +762,7 @@ private:
                 }
             }
             draw_text(win.get(), height - 2, 2, width - 4,
-                      d.accept ? L"Отмена   [Применить]" : L"[Отмена]   Применить");
+                      d.accept ? L"Отмена   [Подтвердить]" : L"[Отмена]   Подтвердить");
         } else if (d.editable && !d.edit_lines) {
             draw_text(win.get(), height - 2, 2, width - 4, L"Enter — продолжить · Esc — отменить");
         } else if (!d.choose) draw_text(win.get(), height - 2, 2, width - 4, L"Esc — закрыть");
@@ -855,9 +857,9 @@ private:
         }
         auto headers = table.columns;
         if (report_sort_ >= 0 && static_cast<size_t>(report_sort_) < headers.size()) headers[report_sort_] += " ↑";
-        wattron(stdscr, theme(2, A_REVERSE));
+        wattron(stdscr, theme(ThemeColor::selection, A_REVERSE));
         draw_text(stdscr, top++, 2, COLS - 4, render_row(headers));
-        wattroff(stdscr, theme(2, A_REVERSE));
+        wattroff(stdscr, theme(ThemeColor::selection, A_REVERSE));
         const size_t first = std::min(job_offset_, indexes.empty() ? size_t{0} : indexes.size() - 1);
         for (size_t i = first; i < indexes.size() && top < bottom; ++i) {
             draw_text(stdscr, top++, 2, COLS - 4, render_row(table.rows[indexes[i]]));
@@ -869,8 +871,10 @@ private:
         const int left = split ? std::max(36, COLS * 47 / 100) : COLS;
         Window list(newwin(bottom - top, left, top, 0), delwin);
         if (!list) return;
-        wbkgd(list.get(), ' ' | theme(1));
+        wbkgd(list.get(), ' ' | theme(ThemeColor::panel));
+        wattron(list.get(), theme(ThemeColor::frame));
         box(list.get(), 0, 0);
+        wattroff(list.get(), theme(ThemeColor::frame));
         draw_text(list.get(), 0, 2, left - 4, home_ ? L" Разделы " : L" " + wide(sections_[section_]) + L" ");
         const int room = bottom - top - 2;
         const size_t selection = home_ ? section_ : selected_;
@@ -882,18 +886,20 @@ private:
         for (int row = 0; row < room && offset + row < count; ++row) {
             const size_t index = offset + row;
             if (index == selection) {
-                wattron(list.get(), theme(2, A_REVERSE));
+                wattron(list.get(), theme(ThemeColor::selection, A_REVERSE));
                 mvwhline(list.get(), row + 1, 1, ' ', left - 2);
             }
             draw_text(list.get(), row + 1, 2, left - 4, wide(home_ ? sections_[index] : visible_[index]->title));
-            wattroff(list.get(), theme(2, A_REVERSE));
+            wattroff(list.get(), theme(ThemeColor::selection, A_REVERSE));
         }
         wnoutrefresh(list.get());
         if (!split) return;
         Window detail(newwin(bottom - top, COLS - left, top, left), delwin);
         if (!detail) return;
-        wbkgd(detail.get(), ' ' | theme(1));
+        wbkgd(detail.get(), ' ' | theme(ThemeColor::panel));
+        wattron(detail.get(), theme(ThemeColor::frame));
         box(detail.get(), 0, 0);
+        wattroff(detail.get(), theme(ThemeColor::frame));
         const int width = COLS - left - 4;
         draw_text(detail.get(), 0, 2, width, home_ ? L" Обзор сервера " : L" О действии ");
         if (!visible_.empty()) {
@@ -923,6 +929,25 @@ private:
         wnoutrefresh(detail.get());
     }
 
+    void draw_shortcuts(std::initializer_list<std::pair<const wchar_t *, const wchar_t *>> shortcuts) {
+        const int row = LINES - 1;
+        wattron(stdscr, theme(ThemeColor::chrome));
+        mvwhline(stdscr, row, 0, ' ', COLS);
+        wattroff(stdscr, theme(ThemeColor::chrome));
+        int x = 0;
+        for (const auto &[key, label] : shortcuts) {
+            if (x >= COLS - 1) break;
+            wattron(stdscr, theme(ThemeColor::selection, A_REVERSE));
+            draw_text(stdscr, row, x, COLS - x - 1, key);
+            wattroff(stdscr, theme(ThemeColor::selection, A_REVERSE));
+            x += wcslen(key);
+            wattron(stdscr, theme(ThemeColor::chrome));
+            draw_text(stdscr, row, x, COLS - x - 1, label);
+            wattroff(stdscr, theme(ThemeColor::chrome));
+            x += wcslen(label);
+        }
+    }
+
     void draw() {
         if (auto *pty = visible_terminal()) {
             pty->draw();
@@ -930,19 +955,19 @@ private:
             return;
         }
         curs_set(0);
-        wbkgdset(stdscr, ' ' | theme(1));
+        wbkgdset(stdscr, ' ' | theme(ThemeColor::panel));
         werase(stdscr);
         if (LINES < 20 || COLS < 60) {
             paragraph(stdscr, 0, 0, COLS - 1, LINES,
                       "Увеличьте терминал до 60×20. F10 — выход. Ctrl+O — оболочка.");
             wnoutrefresh(stdscr);
         } else {
-            wattron(stdscr, theme(2, A_REVERSE) | A_BOLD);
+            wattron(stdscr, theme(ThemeColor::chrome, A_REVERSE) | A_BOLD);
             mvwhline(stdscr, 0, 0, ' ', COLS);
             draw_text(stdscr, 0, 1, COLS - 2, wide(std::string(demo_ ? "DEMO · " : "") +
                       "RemnaSuper " REMNASUPER_VERSION " · " + host_ +
                       (demo_ ? "" : " · root") + " · Задачи: " + std::to_string(active_jobs())));
-            wattroff(stdscr, theme(2, A_REVERSE) | A_BOLD);
+            wattroff(stdscr, theme(ThemeColor::chrome, A_REVERSE) | A_BOLD);
             int x = 1, span = 0;
             size_t first = section_;
             for (size_t i = section_ + 1; i > 0; --i) {
@@ -958,9 +983,9 @@ private:
                     draw_text(stdscr, 1, COLS - 2, 1, L"»");
                     break;
                 }
-                if (i == section_) wattron(stdscr, theme(2, A_REVERSE));
+                if (i == section_) wattron(stdscr, theme(ThemeColor::selection, A_REVERSE));
                 draw_text(stdscr, 1, x, COLS - x - 1, label);
-                if (i == section_) wattroff(stdscr, theme(2, A_REVERSE));
+                if (i == section_) wattroff(stdscr, theme(ThemeColor::selection, A_REVERSE));
                 x += columns;
             }
             std::string status = notice_.empty() ? "Ctrl+O — консоль · F9 — разделы" : notice_;
@@ -969,12 +994,14 @@ private:
             if (sections_[section_] == "Psiphon") status += " · Подключение №" + psiphon_instance_;
             if (shell_.unread()) status += " · Есть вывод оболочки";
             draw_text(stdscr, LINES - 2, 1, COLS - 2, wide(status));
-            wattron(stdscr, theme(2, A_REVERSE));
-            mvwhline(stdscr, LINES - 1, 0, ' ', COLS);
-            draw_text(stdscr, LINES - 1, 1, COLS - 2, jobs_visible_
-                ? L"F2 Сорт.  F3 Вид  F5 Обновить  F6 Назад  F7 Поиск  F10 Выход"
-                : L"F1 Справка  F2 Выбор  F3 Обзор  F5 Обновить  F6 Задачи  F7 Поиск  F10 Выход");
-            wattroff(stdscr, theme(2, A_REVERSE));
+            if (jobs_visible_) {
+                draw_shortcuts({{L"F2", L" Сорт. "}, {L"F3", L" Вид "}, {L"F5", L" Обновить "},
+                                {L"F6", L" Назад "}, {L"F7", L" Поиск "}, {L"F10", L" Выход "}});
+            } else {
+                draw_shortcuts({{L"F1", L" Справка "}, {L"F2", L" Выбор "}, {L"F3", L" Обзор "},
+                                {L"F5", L" Обновить "}, {L"F6", L" Задачи "}, {L"F7", L" Поиск "},
+                                {L"F10", L" Выход "}});
+            }
             if (jobs_visible_) draw_jobs(3, LINES - 2);
             wnoutrefresh(stdscr);
             if (!jobs_visible_) draw_actions(3, LINES - 2);
