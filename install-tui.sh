@@ -141,6 +141,8 @@ with tarfile.open(sys.argv[1], "r:gz") as archive:
         if total > 64 * 1024 * 1024 or len(seen) > 4096:
             raise SystemExit("Превышен предел размера архива.")
         member.mode = 0o755 if member.isdir() else 0o644
+        member.uid = member.gid = 0
+        member.uname = member.gname = ""
     if len(roots) != 1:
         raise SystemExit("Отсутствует единый каталог исходников.")
     archive.extractall(sys.argv[2], members=members, numeric_owner=False)

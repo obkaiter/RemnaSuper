@@ -321,6 +321,12 @@ private:
                   wide(field.value("default", ""))}, Purpose::field);
         } else if (action_->risk != "read_only") {
             std::string detail = action_->summary;
+            for (const auto &field : action_->fields) {
+                if (!field.value("secret", false)) {
+                    const auto id = field.at("id").get<std::string>();
+                    detail += "\n" + field.at("label").get<std::string>() + " — " + params_.at(id).get<std::string>();
+                }
+            }
             for (const auto &resource : action_->resources) detail += "\n" + resource.get<std::string>();
             open({action_->title, detail, true}, Purpose::confirm);
         } else run_action();
@@ -606,14 +612,15 @@ private:
             wmove(win.get(), row - start + 4, column + 3);
             curs_set(1);
         } else if (d.editable) {
-            Field field(new_field(1, width - 6, height - 4, 3, 0, 0), free_field);
+            Window field_window(derwin(win.get(), 1, width - 6, height - 4, 3), delwin);
+            Field field(field_window ? new_field(1, width - 6, 0, 0, 0, 0) : nullptr, free_field);
             FIELD *fields[]{field.get(), nullptr};
             Form form(field ? new_form(fields) : nullptr, free_form);
             if (form) {
                 field_opts_off(field.get(), O_AUTOSKIP);
                 set_field_back(field.get(), A_UNDERLINE);
                 set_form_win(form.get(), win.get());
-                set_form_sub(form.get(), win.get());
+                set_form_sub(form.get(), field_window.get());
                 std::wstring text = d.secret ? std::wstring(d.value.size(), L'*') : d.value;
                 size_t start = 0;
                 int used = 0;
