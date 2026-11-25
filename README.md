@@ -194,7 +194,25 @@ RemnaSuper. Действия самого меню по-прежнему мог�
 - Добавление HSTS в TLS-блоки `nginx.conf`, проверка конфигурации и
   перезапуск ноды.
 - Установка и удаление geofiles.
+- Блокировка исходящего SMTP с применением правил после перезагрузки.
 - Управление Node Accelerator.
+
+Пункт **Закрыть исходящий SMTP** блокирует исходящие соединения TCP на порты
+`25`, `465` и `587` по IPv4 и IPv6 с хоста и через мосты Docker. При
+необходимости RemnaSuper устанавливает пакет `nftables` через APT. Служба
+`remnasuper-smtp-egress.service` применяет отдельную таблицу `inet remnasuper_smtp`
+сразу и при каждой загрузке. Пункт также показывает дополнительное правило
+для профиля Xray.
+
+```bash
+systemctl status remnasuper-smtp-egress.service
+nft list table inet remnasuper_smtp
+```
+
+Чтобы повторно применить правила после общей очистки nftables, выполните
+`systemctl reload remnasuper-smtp-egress.service`. Чтобы снять блокировку и
+отключить её автозапуск, выполните
+`systemctl disable --now remnasuper-smtp-egress.service`.
 
 ### Настройка релея
 
@@ -469,24 +487,33 @@ Docker, systemd-сервис и watchdog, а наружу публикуется
 
 ## Geofiles
 
-В меню **Geofiles** доступны два источника:
+В меню **Geofiles** доступны три источника.
 
 - `Loyalsoldier/v2ray-rules-dat`;
-- `Davoyan/xray-routing`.
+- `Davoyan/xray-routing`;
+- `Chocolate4U/Iran-v2ray-rules`.
 
-Для каждого источника скачиваются `geosite.dat` и `geoip.dat`, файлы
-сохраняются в `/opt/remnanode/geofiles` и подключаются в контейнер RemnaNode
-через volumes:
+Для Loyalsoldier и xray-routing скачиваются `geosite.dat` и `geoip.dat`, для
+Chocolate4U скачиваются `security.dat` и `security-ip.dat`. Файлы сохраняются
+в `/opt/remnanode/geofiles` и подключаются в контейнер RemnaNode через volumes.
 
 ```text
 /usr/local/bin/<provider>-geosite.dat
 /usr/local/bin/<provider>-geoip.dat
+/usr/local/bin/security.dat
+/usr/local/bin/security-ip.dat
 ```
+
+После установки Chocolate4U меню показывает правила для ручного добавления в
+`routing.rules` профиля Xray ноды. Они направляют домены и IP-адреса из категорий
+`malware` и `phishing` в outbound с протоколом `blackhole`. Удалите эти правила
+из профиля Xray перед удалением набора.
 
 После установки для каждого файла создаётся безопасное ежедневное обновление
 через cron в `00:00`. Новый файл скачивается во временный путь, проверяется на
 непустое содержимое и только затем заменяет текущий. При ошибке существующий
-файл сохраняется.
+файл сохраняется. Пересоздайте контейнер RemnaNode, чтобы он подхватил файлы,
+обновлённые через cron.
 
 Резервные копии конфигурационных файлов RemnaSuper хранит в
 `/opt/RemnaSuper/backups`. Здесь сохраняются копии `docker-compose.yml`,

@@ -1,0 +1,15 @@
+[Unit]
+Description=RemnaSuper SMTP egress filter
+After=network-pre.target nftables.service firewalld.service
+Before=docker.service
+RequiresMountsFor=/opt/RemnaSuper
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /opt/RemnaSuper/lib/system/smtp-egress.nft
+ExecReload=/usr/sbin/nft -f /opt/RemnaSuper/lib/system/smtp-egress.nft
+ExecStop=/usr/sbin/nft "add table inet remnasuper_smtp; delete table inet remnasuper_smtp"
+
+[Install]
+WantedBy=multi-user.target

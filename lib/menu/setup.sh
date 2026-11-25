@@ -21,7 +21,8 @@ show_setup_menu() {
     menu_item 10 "Исправить логи (access.log, xray.out.log)"
     menu_item 11 "Заглушка: TLS 1.2, TLS 1.3 и HSTS"
     menu_item 12 "Установка/удаление geofiles"
-    menu_item 13 "Управление Node Accelerator"
+    menu_item 13 "Закрыть исходящий SMTP"
+    menu_item 14 "Управление Node Accelerator"
 
     menu_section "Навигация"
     menu_back_item
@@ -67,7 +68,10 @@ initial_setup_menu() {
                 "В каждый TLS server-блок с доменным server_name в /opt/remnanode/nginx.conf будет добавлен заголовок Strict-Transport-Security со сроком 1 год и includeSubDomains. Перед заменой файла будет создана резервная копия, конфигурация nginx будет проверена в контейнере, затем контейнеры RemnaNode будут перезапущены. Текущие подключения могут кратковременно прерваться." \
                 enable_tls_hsts ;;
             12) geofiles_menu ;;
-            13) node_accelerator_menu ;;
+            13) run_action "Закрыть исходящий SMTP" \
+                "Если nftables отсутствует, APT обновит списки пакетов и установит его из настроенных репозиториев. Будет создана и включена служба systemd remnasuper-smtp-egress. Она добавит отдельную таблицу nftables и сразу заблокирует исходящие соединения TCP/25, 465 и 587 по IPv4 и IPv6 с хоста и через мосты Docker. Отправка почты через эти порты, в том числе из контейнеров, перестанет работать." \
+                close_outbound_smtp ;;
+            14) node_accelerator_menu ;;
             0) return ;;
         esac
     done

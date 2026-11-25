@@ -1,168 +1,55 @@
 #!/usr/bin/env bash
 
-install_geofile() {
+install_geofile() (
     local repo_name="$1"
-    local geosite_url="$2"
-    local geoip_url="$3"
+    shift
+    local filename url lock_fd
+    local -a filenames=()
 
-    header "Установка geofiles: ${repo_name}"
-    check_command wget || return 1
-    mkdir -p "$GEOFILES_DIR"
-
-    if [ "$geosite_url" = "none" ] && [ "$geoip_url" = "none" ]; then
-        error "Не указаны URL для скачивания файлов."
+    header "Установка geofiles: $repo_name"
+    check_command wget && check_command crontab && check_command flock || return 1
+    if ! { exec {lock_fd}> "$GEOFILES_LOCK"; } || ! flock "$lock_fd"; then
+        error "Не удалось получить блокировку geofiles."
         return 1
     fi
-    if [ -f "$COMPOSE_FILE" ] && ! backup_compose; then
-        error "Не удалось создать резервную копию docker-compose.yml."
+    if ! mkdir -p -- "$GEOFILES_DIR"; then
+        error "Не удалось создать каталог $GEOFILES_DIR."
         return 1
     fi
 
-    if [ "$geosite_url" != "none" ]; then
-        local geosite_filename="${repo_name}-geosite.dat"
-        step "Скачивание geosite.dat..."
-        if ! download_geofile_safely "$geosite_url" "${GEOFILES_DIR}/${geosite_filename}"; then
-            error "Ошибка при скачивании geosite.dat."
-            return 1
-        fi
-        if ! add_geofile_cron "$geosite_filename" "$geosite_url"; then
-            error "Не удалось добавить задачу обновления ${geosite_filename} в crontab."
-            return 1
-        fi
-        success "geosite.dat скачан: ${GEOFILES_DIR}/${geosite_filename}"
-        success "Задача добавлена в crontab: ежедневное обновление в 00:00."
-    fi
+    while (( $# > 0 )); do
+        filename="$1"
+        url="$2"
+        shift 2
+        step "Скачивание $filename..."
+        download_geofile_safely "$url" "$GEOFILES_DIR/$filename" || return 1
+        update_geofile_cron "$filename" "$url" || return 1
+        filenames+=("$filename")
+        success "Файл $filename установлен. Обновление через cron ежедневно в 00:00."
+    done
 
-    if [ "$geoip_url" != "none" ]; then
-        local geoip_filename="${repo_name}-geoip.dat"
-        step "Скачивание geoip.dat..."
-        if ! download_geofile_safely "$geoip_url" "${GEOFILES_DIR}/${geoip_filename}"; then
-            error "Ошибка при скачивании geoip.dat."
-            return 1
-        fi
-        if ! add_geofile_cron "$geoip_filename" "$geoip_url"; then
-            error "Не удалось добавить задачу обновления ${geoip_filename} в crontab."
-            return 1
-        fi
-        success "geoip.dat скачан: ${GEOFILES_DIR}/${geoip_filename}"
-        success "Задача добавлена в crontab: ежедневное обновление в 00:00."
-    fi
+    configure_geofile_volumes install "${filenames[@]}"
+)
 
-    if [ -f "$COMPOSE_FILE" ]; then
-        printf "\n"
-        step "Добавление volumes в docker-compose.yml..."
-
-        if [ "$geosite_url" != "none" ]; then
-            local geosite_filename="${repo_name}-geosite.dat"
-            migrate_legacy_geofile_volume "$geosite_filename" || return 1
-            add_remnanode_volume "${GEOFILES_DIR}/${geosite_filename}:/usr/local/bin/${geosite_filename}" || return 1
-        fi
-        if [ "$geoip_url" != "none" ]; then
-            local geoip_filename="${repo_name}-geoip.dat"
-            migrate_legacy_geofile_volume "$geoip_filename" || return 1
-            add_remnanode_volume "${GEOFILES_DIR}/${geoip_filename}:/usr/local/bin/${geoip_filename}" || return 1
-        fi
-
-        restart_remnanode_compose
-    else
-        printf "\n"
-        warn "Файл docker-compose.yml не найден по пути ${COMPOSE_FILE}"
-        info "Настройка volume и перезапуск контейнеров пропущены."
-    fi
-}
-
-uninstall_geofile() {
+uninstall_geofile() (
     local repo_name="$1"
-    local has_geosite="$2"
-    local has_geoip="$3"
-    local files_removed=0
-    local modified=false
-    local compose_needs_update=0
+    shift
+    local filename lock_fd
 
-    header "Удаление geofiles: ${repo_name}"
+    header "Удаление geofiles: $repo_name"
+    check_command crontab && check_command flock || return 1
+    if ! { exec {lock_fd}> "$GEOFILES_LOCK"; } || ! flock "$lock_fd"; then
+        error "Не удалось получить блокировку geofiles."
+        return 1
+    fi
+    configure_geofile_volumes remove "$@" || return 1
 
-    if [ -f "$COMPOSE_FILE" ]; then
-        if [ "$has_geosite" = "true" ] && grep -qF "${repo_name}-geosite.dat" "$COMPOSE_FILE"; then
-            compose_needs_update=1
-        fi
-        if [ "$has_geoip" = "true" ] && grep -qF "${repo_name}-geoip.dat" "$COMPOSE_FILE"; then
-            compose_needs_update=1
-        fi
-        if [ "$compose_needs_update" -eq 1 ] && ! backup_compose; then
-            error "Не удалось создать резервную копию docker-compose.yml. Удаление не выполнено."
+    for filename in "$@"; do
+        update_geofile_cron "$filename" || return 1
+        if ! rm -f -- "$GEOFILES_DIR/$filename"; then
+            error "Не удалось удалить $GEOFILES_DIR/$filename."
             return 1
         fi
-    fi
-
-    if [ "$has_geosite" = "true" ]; then
-        local geosite_filename="${repo_name}-geosite.dat"
-        local geosite_path="${GEOFILES_DIR}/${geosite_filename}"
-        if [ -f "$geosite_path" ]; then
-            step "Удаление файла: ${geosite_path}"
-            rm -f "$geosite_path"
-            files_removed=$((files_removed + 1))
-            success "Файл ${geosite_filename} удален."
-        else
-            info "Файл ${geosite_filename} не найден, пропуск."
-        fi
-        step "Удаление задачи из crontab для ${geosite_filename}..."
-        (crontab -l 2>/dev/null | grep -vF "${geosite_filename}" || true) | crontab -
-        success "Задача для ${geosite_filename} удалена из crontab."
-    fi
-
-    if [ "$has_geoip" = "true" ]; then
-        local geoip_filename="${repo_name}-geoip.dat"
-        local geoip_path="${GEOFILES_DIR}/${geoip_filename}"
-        if [ -f "$geoip_path" ]; then
-            step "Удаление файла: ${geoip_path}"
-            rm -f "$geoip_path"
-            files_removed=$((files_removed + 1))
-            success "Файл ${geoip_filename} удален."
-        else
-            info "Файл ${geoip_filename} не найден, пропуск."
-        fi
-        step "Удаление задачи из crontab для ${geoip_filename}..."
-        (crontab -l 2>/dev/null | grep -vF "${geoip_filename}" || true) | crontab -
-        success "Задача для ${geoip_filename} удалена из crontab."
-    fi
-
-    if [ "$files_removed" -eq 0 ]; then
-        info "Нет файлов для удаления."
-    fi
-
-    if [ -f "$COMPOSE_FILE" ]; then
-        printf "\n"
-        step "Удаление volumes из docker-compose.yml..."
-
-        if [ "$has_geosite" = "true" ]; then
-            local geosite_filename="${repo_name}-geosite.dat"
-            if grep -qF "$geosite_filename" "$COMPOSE_FILE"; then
-                sed -i "\|${geosite_filename}|d" "$COMPOSE_FILE"
-                modified=true
-                success "Volume для ${geosite_filename} удален."
-            fi
-        fi
-
-        if [ "$has_geoip" = "true" ]; then
-            local geoip_filename="${repo_name}-geoip.dat"
-            if grep -qF "$geoip_filename" "$COMPOSE_FILE"; then
-                sed -i "\|${geoip_filename}|d" "$COMPOSE_FILE"
-                modified=true
-                success "Volume для ${geoip_filename} удален."
-            fi
-        fi
-
-        if [ "$modified" = true ]; then
-            restart_remnanode_compose
-        else
-            info "Volumes не найдены в docker-compose.yml."
-        fi
-    else
-        printf "\n"
-        warn "Файл docker-compose.yml не найден по пути ${COMPOSE_FILE}"
-        info "Удаление volumes пропущено."
-    fi
-
+    done
     success "Удаление geofiles завершено."
-}
-
+)

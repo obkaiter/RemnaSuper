@@ -3,6 +3,8 @@
 RemnaSuper text eol=lf
 VERSION text eol=lf
 *.sh text eol=lf
+*.nft text eol=lf
+lib/system/*.service text eol=lf
 lib/*.sh text eol=lf
 *.py text eol=lf
 *.md text eol=lf

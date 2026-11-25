@@ -1,0 +1,17 @@
+add table inet remnasuper_smtp
+delete table inet remnasuper_smtp
+
+table inet remnasuper_smtp {
+    chain output {
+        type filter hook output priority -5; policy accept;
+        ct direction reply return
+        tcp dport { 25, 465, 587 } counter reject with tcp reset
+    }
+
+    chain forward {
+        type filter hook forward priority -5; policy accept;
+        ct direction reply return
+        meta iifkind "bridge" ct status dnat return
+        meta iifkind "bridge" tcp dport { 25, 465, 587 } counter reject with tcp reset
+    }
+}

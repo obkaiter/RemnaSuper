@@ -38,8 +38,10 @@ run_geofiles_action() {
     local description="$2"
     local action="$3"
     local remnasuper_action_header_state=first
+    local action_status=0
 
     confirm_action "$title" "$description" || return
-    "$action"
+    "$action" || action_status=$?
     pause
+    return "$action_status"
 }

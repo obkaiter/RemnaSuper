@@ -66,10 +66,8 @@ backup_config_file() {
 }
 
 backup_compose() {
-    local backup_file
-
     if [ -f "$COMPOSE_FILE" ]; then
-        backup_config_file "$COMPOSE_FILE" backup_file || return 1
+        backup_config_file "$COMPOSE_FILE" "${1:-}" || return 1
     fi
 }
 

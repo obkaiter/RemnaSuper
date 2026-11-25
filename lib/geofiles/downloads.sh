@@ -10,7 +10,7 @@ download_geofile_safely() {
         return 1
     fi
 
-    if wget -q --show-progress -O "$tmp_file" "$url" \
+    if wget -q --show-progress --timeout=30 --tries=3 -O "$tmp_file" "$url" \
         && [ -s "$tmp_file" ] \
         && chmod 0644 "$tmp_file" \
         && mv -f "$tmp_file" "$target"; then
@@ -22,15 +22,34 @@ download_geofile_safely() {
     return 1
 }
 
-add_geofile_cron() {
+update_geofile_cron() {
     local filename="$1"
-    local url="$2"
+    local url="${2:-}"
     local target="${GEOFILES_DIR}/${filename}"
+    local entries
 
-    (
-        crontab -l 2>/dev/null | grep -vF "$filename" || true
-        printf "0 0 * * * tmp=\$(/usr/bin/mktemp '%s.tmp.XXXXXX') && /usr/bin/wget -q -O \"\$tmp\" '%s' && [ -s \"\$tmp\" ] && /bin/chmod 0644 \"\$tmp\" && /bin/mv -f \"\$tmp\" '%s' || { status=\$?; [ -z \"\$tmp\" ] || /bin/rm -f \"\$tmp\"; exit \"\$status\"; }\n" \
-            "$target" "$url" "$target"
-    ) | crontab -
+    if ! entries="$(LC_ALL=C crontab -l 2>&1)"; then
+        if [[ "$entries" != 'no crontab for '* ]]; then
+            error "Не удалось прочитать crontab: $entries"
+            return 1
+        fi
+        [[ -n "$url" ]] || return 0
+        entries=''
+    fi
+
+    entries="$(printf '%s\n' "$entries" | LC_ALL=C awk -v tmp="'$target.tmp.XXXXXX'" '!index($0, tmp)')" || return 1
+
+    if ! {
+        if [[ -n "$entries" ]]; then printf '%s\n' "$entries"; fi
+        if [[ -n "$url" ]]; then
+            printf "0 0 * * * exec 9>'%s'; /usr/bin/flock 9 || exit \$?; [ -f '%s' ] || exit 0; " \
+                "$GEOFILES_LOCK" "$target"
+            printf "tmp=\$(/usr/bin/mktemp '%s.tmp.XXXXXX') && /usr/bin/wget -q --timeout=30 --tries=3 -O \"\$tmp\" '%s' && [ -s \"\$tmp\" ] && /bin/chmod 0644 \"\$tmp\" && /bin/mv -f \"\$tmp\" '%s' || { status=\$?; [ -z \"\$tmp\" ] || /bin/rm -f \"\$tmp\"; exit \"\$status\"; }\n" \
+                "$target" "$url" "$target"
+        fi
+    } | crontab -; then
+        error "Не удалось сохранить задания crontab для $filename."
+        return 1
+    fi
 }
 
