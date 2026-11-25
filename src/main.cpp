@@ -132,13 +132,21 @@ std::wstring lower(std::wstring value) {
 class App {
 public:
     App(std::filesystem::path root, std::vector<Action> actions, bool demo)
-        : root_(std::move(root)), actions_(std::move(actions)), demo_(demo), host_(hostname()) {
+        : root_(std::move(root)), actions_(std::move(actions)), demo_(demo), host_(hostname()), home_(!demo) {
         for (const auto &action : actions_) {
             if (std::find(sections_.begin(), sections_.end(), action.section) == sections_.end()) {
                 sections_.push_back(action.section);
             }
         }
         if (sections_.empty()) throw std::runtime_error("Каталог действий пуст.");
+        rebuild();
+    }
+
+    void select_section(int offset, bool wrap) {
+        if (wrap) {
+            section_ = (section_ + (offset < 0 ? sections_.size() - 1 : 1)) % sections_.size();
+        } else move_row(offset, sections_.size(), section_);
+        filter_.clear();
         rebuild();
     }
 
@@ -596,30 +604,41 @@ private:
             return;
         }
         if (key.special && key.value == KEY_F(7)) {
+            home_ = false;
             return open({"Поиск действий", "Введите часть названия.", true,
                          false, true, false, filter_}, Purpose::filter);
         }
         if (key.special && key.value == KEY_F(9)) { section_focus_ = !section_focus_; return; }
         if (key.special && key.value == KEY_F(5)) { const size_t selection = selected_; rebuild();
             if (!visible_.empty()) selected_ = std::min(selection, visible_.size() - 1);
-            if (sections_[section_] == "Система") refresh_overview();
+            if (home_ || sections_[section_] == "Система") refresh_overview();
             return;
         }
         if ((!key.special && key.value == '\t') || (key.special &&
             (key.value == KEY_BTAB || key.value == KEY_LEFT || key.value == KEY_RIGHT))) {
             const bool reverse = key.special && (key.value == KEY_LEFT || key.value == KEY_BTAB);
-            section_ = (section_ + (reverse ? sections_.size() - 1 : 1)) % sections_.size();
-            filter_.clear();
-            rebuild();
+            select_section(reverse ? -1 : 1, true);
             return;
         }
         if (escape(key)) {
             if (!filter_.empty()) { filter_.clear(); rebuild(); }
             else if (section_focus_) section_focus_ = false;
+            else if (!home_ && !demo_) { home_ = true; top_ = 0; }
             else quit();
             return;
         }
         if (enter(key) && section_focus_) { section_focus_ = false; return; }
+        if (home_) {
+            if (enter(key) || (key.special && key.value == KEY_F(2))) { home_ = false; return; }
+            if (key.special && key.value == KEY_UP) select_section(-1, false);
+            if (key.special && key.value == KEY_DOWN) select_section(1, false);
+            if (key.special && key.value == KEY_HOME) select_section(-static_cast<int>(sections_.size()), false);
+            if (key.special && key.value == KEY_END) select_section(static_cast<int>(sections_.size()), false);
+            if (key.special && key.value == KEY_F(3) && !visible_.empty()) {
+                open({sections_[section_], visible_[selected_]->summary}, Purpose::help);
+            }
+            return;
+        }
         if (enter(key) || (key.special && key.value == KEY_F(2))) return choose_action();
         if (!key.special) return;
         switch (key.value) {
@@ -840,18 +859,21 @@ private:
         if (!list) return;
         wbkgd(list.get(), ' ' | theme(1));
         box(list.get(), 0, 0);
-        draw_text(list.get(), 0, 2, left - 4, L" " + wide(sections_[section_]) + L" ");
+        draw_text(list.get(), 0, 2, left - 4, home_ ? L" Разделы " : L" " + wide(sections_[section_]) + L" ");
         const int room = bottom - top - 2;
-        if (selected_ < top_) top_ = selected_;
-        if (selected_ >= top_ + room) top_ = selected_ - room + 1;
-        if (visible_.empty()) draw_text(list.get(), 2, 2, left - 4, L"Поиск не дал результатов");
-        for (int row = 0; row < room && top_ + row < visible_.size(); ++row) {
-            const size_t index = top_ + row;
-            if (index == selected_) {
+        const size_t selection = home_ ? section_ : selected_;
+        const size_t count = home_ ? sections_.size() : visible_.size();
+        size_t &offset = home_ ? home_top_ : top_;
+        if (selection < offset) offset = selection;
+        if (selection >= offset + room) offset = selection - room + 1;
+        if (count == 0) draw_text(list.get(), 2, 2, left - 4, L"Поиск не дал результатов");
+        for (int row = 0; row < room && offset + row < count; ++row) {
+            const size_t index = offset + row;
+            if (index == selection) {
                 wattron(list.get(), theme(2, A_REVERSE));
                 mvwhline(list.get(), row + 1, 1, ' ', left - 2);
             }
-            draw_text(list.get(), row + 1, 2, left - 4, wide(visible_[index]->title));
+            draw_text(list.get(), row + 1, 2, left - 4, wide(home_ ? sections_[index] : visible_[index]->title));
             wattroff(list.get(), theme(2, A_REVERSE));
         }
         wnoutrefresh(list.get());
@@ -861,19 +883,26 @@ private:
         wbkgd(detail.get(), ' ' | theme(1));
         box(detail.get(), 0, 0);
         const int width = COLS - left - 4;
-        draw_text(detail.get(), 0, 2, width, L" О действии ");
+        draw_text(detail.get(), 0, 2, width, home_ ? L" Обзор сервера " : L" О действии ");
         if (!visible_.empty()) {
             const auto &action = *visible_[selected_];
-            draw_text(detail.get(), 2, 2, width, wide(action.title));
-            int y = 4;
-            if (sections_[section_] == "Система" && overview_) {
+            int y = 2;
+            if (home_ && overview_) {
                 for (const auto &line : overview_->lines()) {
-                    if (y >= room - 4) break;
-                    if (line.find(".service") != std::string::npos) draw_text(detail.get(), y++, 2, width, wide(line));
+                    if (y >= room - 6) break;
+                    if (line.find(" · ") != std::string::npos || (!line.empty() && line[0] >= '0' && line[0] <= '9')) {
+                        const auto rows = wrap(line, width);
+                        for (const auto &row : rows) {
+                            if (y >= room - 6) break;
+                            draw_text(detail.get(), y++, 2, width, row);
+                        }
+                    }
                 }
-                if (y == 4) draw_text(detail.get(), y++, 2, width, L"Не проверено");
+                if (y == 2) draw_text(detail.get(), y++, 2, width, L"Не проверено");
                 ++y;
             }
+            draw_text(detail.get(), y++, 2, width, wide(home_ ? sections_[section_] : action.title));
+            ++y;
             paragraph(detail.get(), y, 2, width, room - y, action.summary);
         }
         wnoutrefresh(detail.get());
@@ -909,10 +938,15 @@ private:
             }
             for (size_t i = first; i < sections_.size() && x < COLS - 2; ++i) {
                 const auto label = L" " + wide(sections_[i]) + L" ";
+                const int columns = std::max(1, wcswidth(label.c_str(), label.size()));
+                if (columns >= COLS - x - 1) {
+                    draw_text(stdscr, 1, COLS - 2, 1, L"»");
+                    break;
+                }
                 if (i == section_) wattron(stdscr, theme(2, A_REVERSE));
                 draw_text(stdscr, 1, x, COLS - x - 1, label);
                 if (i == section_) wattroff(stdscr, theme(2, A_REVERSE));
-                x += std::max(1, wcswidth(label.c_str(), label.size()));
+                x += columns;
             }
             std::string status = notice_.empty() ? "Ctrl+O — консоль · F9 — разделы" : notice_;
             if (installed_) status = "Обновление установлено. Перезапуск после закрытия оболочки и заданий.";
@@ -957,6 +991,7 @@ private:
     std::string notice_;
     std::string psiphon_instance_ = "1";
     size_t section_ = 0, selected_ = 0, top_ = 0, job_row_ = 0, job_offset_ = 0, field_ = 0;
+    size_t home_top_ = 0;
     unsigned sequence_ = 0;
     int job_column_ = 0;
     size_t report_table_ = 0;
@@ -965,6 +1000,7 @@ private:
     bool ui_paste_ = false;
     bool section_focus_ = false, shell_visible_ = false, jobs_visible_ = false, done_ = false, shutting_down_ = false;
     bool restart_ = false, installed_ = false, interacted_ = false;
+    bool home_;
 };
 }
 

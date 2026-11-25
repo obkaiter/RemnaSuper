@@ -18,20 +18,27 @@ tui_unit_state() {
 }
 
 tui_status() {
-    local dir unit
+    local dir unit label running
     printf '%s\n' "$(date -Is)"
     for dir in "$NODE_DIR" "$AGENT_DIR"; do
-        printf '%s\n' "$dir"
+        label=RemnaNode
+        [[ "$dir" != "$AGENT_DIR" ]] || label=Node-agent
         if [[ ! -f "$dir/docker-compose.yml" ]]; then
-            printf '%s\n' '  [--] Compose-файл не найден'
+            printf '%s · [--] Compose-файл не найден\n' "$label"
         elif command -v docker >/dev/null; then
-            (cd -- "$dir" && timeout 5 docker compose ps) || warn "Не удалось получить состояние Compose."
+            if ! running="$(cd -- "$dir" && timeout 5 docker compose ps --status running -q)"; then
+                printf '%s · Неизвестно: Compose недоступен\n' "$label"
+            elif [[ -n "$running" ]]; then
+                printf '%s · [OK] Есть запущенные контейнеры\n' "$label"
+            else
+                printf '%s · [--] Запущенных контейнеров нет\n' "$label"
+            fi
         else
-            warn "Docker недоступен."
+            printf '%s · Неизвестно: Docker недоступен\n' "$label"
         fi
     done
-    for unit in haproxy.service "$RELAY_SERVICE" ufw.service ssh.service; do
-        printf '%s  %s\n' "$unit" "$(tui_unit_state "$unit")"
+    for unit in 'HAProxy|haproxy.service' "Сборщик|$RELAY_SERVICE" 'UFW|ufw.service' 'SSH|ssh.service'; do
+        printf '%s · %s\n' "${unit%%|*}" "$(tui_unit_state "${unit#*|}")"
     done
 }
 
@@ -90,7 +97,7 @@ tui_warp_status() {
         warn "Состояние автозапуска неизвестно."
     fi
     if command -v wg >/dev/null; then
-        wg show "$WARP_NATIVE_INTERFACE" || warn "Сведения WireGuard недоступны."
+        WG_HIDE_KEYS=always wg show "$WARP_NATIVE_INTERFACE" || warn "Сведения WireGuard недоступны."
     fi
 }
 
@@ -182,7 +189,10 @@ tui_relay_logs() {
 tui_relay_config() {
     [[ ! -L "$RELAY_HAPROXY_CONFIG" && -f "$RELAY_HAPROXY_CONFIG" ]] || return 1
     awk '
-        tolower($0) ~ /password|secret|token|credential|stats[[:space:]]+auth|user[[:space:]]+.*password/ {
+        /-----BEGIN .*PRIVATE KEY-----/ { key_block=1; print "[скрыто]"; next }
+        /-----END .*PRIVATE KEY-----/ { key_block=0; next }
+        key_block { next }
+        tolower($0) ~ /password|secret|token|credential|authorization|api[_-]?key|stats[[:space:]]+auth/ {
             print "[скрыто]"
             next
         }

@@ -36,7 +36,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates curl git build-essential cmake pkg-config libncurses-dev libvterm-dev \
-            nlohmann-json3-dev ncurses-term python3 python3-pexpect shellcheck
+            nlohmann-json3-dev ncurses-term python3 python3-pexpect shellcheck tzdata
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -183,6 +183,32 @@ jobs:
           child.close()
           assert child.exitstatus == 0
           PY
+      - name: Check ASan and UBSan
+        if: matrix.name == 'debian-13'
+        env:
+          TERM: xterm-256color
+          LC_ALL: C.UTF-8
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          cmake -S . -B "$RUNNER_TEMP/build-sanitized" -DCMAKE_BUILD_TYPE=Debug -DREMNASUPER_SANITIZERS=ON
+          cmake --build "$RUNNER_TEMP/build-sanitized" --parallel 2
+          cp "$RUNNER_TEMP/build-sanitized/remnasuper-tui" "$RUNNER_TEMP/tui/bin/remnasuper-tui-sanitized"
+          python3 - <<'PY'
+          import os
+          import pexpect
+
+          executable = os.path.join(os.environ["RUNNER_TEMP"], "tui", "bin", "remnasuper-tui-sanitized")
+          child = pexpect.spawn(executable, ["--demo"], encoding="utf-8", dimensions=(28, 100))
+          child.expect_exact("Пример задания")
+          child.send("\r")
+          child.expect_exact("Завершено")
+          child.send("\x1b[21~")
+          child.expect(pexpect.EOF)
+          child.close()
+          assert child.exitstatus == 0, child.before
+          PY
+          rm -- "$RUNNER_TEMP/tui/bin/remnasuper-tui-sanitized"
       - name: Check side-by-side installation
         if: matrix.name == 'debian-12'
         run: |

@@ -84,7 +84,7 @@ show_warp_status() {
     fi
 
     if command -v wg >/dev/null 2>&1; then
-        if ! wg show "$WARP_NATIVE_INTERFACE"; then
+        if ! WG_HIDE_KEYS=always wg show "$WARP_NATIVE_INTERFACE"; then
             info "Данные WireGuard для интерфейса warp недоступны."
         fi
     else
@@ -99,7 +99,7 @@ show_warp_interface_info() {
     check_command wg || { pause; return 1; }
     check_command ip || { pause; return 1; }
 
-    if ! wg show "$WARP_NATIVE_INTERFACE"; then
+    if ! WG_HIDE_KEYS=always wg show "$WARP_NATIVE_INTERFACE"; then
         warn "Интерфейс warp не найден или не запущен."
     fi
     if ! ip -brief address show dev "$WARP_NATIVE_INTERFACE"; then

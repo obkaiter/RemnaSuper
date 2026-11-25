@@ -142,10 +142,14 @@ Terminal::Terminal() {
     fflush(stdout);
     if (has_colors() && start_color() == OK) {
         use_default_colors();
-        init_pair(1, COLOR_WHITE, COLOR_BLUE);
-        init_pair(2, COLOR_BLACK, COLOR_CYAN);
-        init_pair(3, COLOR_BLACK, COLOR_WHITE);
-        init_pair(4, COLOR_CYAN, COLOR_BLUE);
+        const short background = COLORS >= 256 ? 18 : COLOR_BLUE;
+        const short selection = COLORS >= 256 ? 80 : COLOR_CYAN;
+        const short foreground = COLORS >= 256 ? 255 : COLOR_WHITE;
+        const short modal = COLORS >= 256 ? 252 : COLOR_WHITE;
+        init_pair(1, foreground, background);
+        init_pair(2, COLOR_BLACK, selection);
+        init_pair(3, COLOR_BLACK, modal);
+        init_pair(4, selection, background);
         for (short fg = 0; fg < 9; ++fg) {
             for (short bg = 0; bg < 9; ++bg) {
                 const short pair = 8 + fg * 9 + bg;
