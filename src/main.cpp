@@ -48,14 +48,25 @@ bool enter(Key key) {
 
 bool escape(Key key) { return !key.special && key.value == 27; }
 
-std::vector<std::wstring> wrap(const std::string &text, int width) {
+std::vector<std::wstring> wrap(const std::string &text, int width, bool words = false) {
     std::vector<std::wstring> lines(1);
     int cells = 0;
     for (const wchar_t c : wide(text)) {
         const int size = wcwidth(c);
-        if (c == L'\n' || (size > 0 && cells + size > width)) {
+        if (c == L'\n') {
             lines.emplace_back();
             cells = 0;
+        } else if (size > 0 && cells + size > width) {
+            std::wstring rest;
+            if (words) {
+                const auto space = lines.back().find_last_of(L' ');
+                if (space != std::wstring::npos && space > 0) {
+                    rest = lines.back().substr(space + 1);
+                    lines.back().resize(space);
+                }
+            }
+            cells = std::max(0, wcswidth(rest.c_str(), rest.size()));
+            lines.push_back(std::move(rest));
         }
         if (size >= 0 && c != L'\n') {
             lines.back() += c;
@@ -65,8 +76,9 @@ std::vector<std::wstring> wrap(const std::string &text, int width) {
     return lines;
 }
 
-void paragraph(WINDOW *win, int top, int x, int width, int height, const std::string &text, int offset = 0) {
-    const auto lines = wrap(text, width);
+void paragraph(WINDOW *win, int top, int x, int width, int height, const std::string &text, int offset = 0,
+               bool words = true) {
+    const auto lines = wrap(text, width, words);
     for (int row = 0; row < height && row + offset < static_cast<int>(lines.size()); ++row) {
         draw_text(win, top + row, x, width, lines[row + offset]);
     }
@@ -463,7 +475,7 @@ private:
         if (!d.choose && !key.special && key.value == ' ') return close_dialog(false);
         if (key.special && (key.value == KEY_UP || key.value == KEY_DOWN ||
                             key.value == KEY_PPAGE || key.value == KEY_NPAGE)) {
-            const int limit = static_cast<int>(wrap(d.description, std::min(inner_width, COLS - 2) - 4).size()) - 1;
+            const int limit = static_cast<int>(wrap(d.description, std::min(inner_width, COLS - 2) - 4, true).size()) - 1;
             const int delta = key.value == KEY_UP ? -1 : key.value == KEY_DOWN ? 1 : key.value == KEY_PPAGE ? -8 : 8;
             d.offset = std::clamp(d.offset + delta, 0, std::max(0, limit));
         } else if ((!key.special && key.value == '\t') || (key.special && key.value == KEY_BTAB) ||
@@ -658,7 +670,7 @@ private:
         const auto &d = *dialog_;
         const int width = std::min(inner_width, COLS - 2);
         const int height = std::min(LINES - 2, std::max(8, d.edit_lines ? 18 :
-            static_cast<int>(wrap(d.description, width - 4).size() + d.choices.size()) + 7));
+            static_cast<int>(wrap(d.description, width - 4, true).size() + d.choices.size()) + 7));
         Window win(newwin(height, width, (LINES - height) / 2, (COLS - width) / 2), delwin);
         if (!win) return;
         Panel panel(new_panel(win.get()), del_panel);
@@ -687,7 +699,7 @@ private:
             const int room = height - 6;
             const int row = static_cast<int>(before.size()) - 1;
             const int start = std::max(0, row - room + 1);
-            paragraph(win.get(), 4, 3, width - 6, room, utf8(d.value), start);
+            paragraph(win.get(), 4, 3, width - 6, room, utf8(d.value), start, false);
             const auto &line = before.back();
             const int column = std::clamp(wcswidth(line.data(), line.size()), 0, width - 6);
             draw_text(win.get(), height - 2, 2, width - 4, L"Ctrl+S — применить · Esc — отменить");
@@ -890,8 +902,11 @@ private:
             if (home_ && overview_) {
                 for (const auto &line : overview_->lines()) {
                     if (y >= room - 6) break;
-                    if (line.find(" · ") != std::string::npos || (!line.empty() && line[0] >= '0' && line[0] <= '9')) {
-                        const auto rows = wrap(line, width);
+                    if (line.rfind("RemnaNode · ", 0) == 0 || line.rfind("Node-agent · ", 0) == 0 ||
+                        line.rfind("HAProxy · ", 0) == 0 || line.rfind("Сборщик · ", 0) == 0 ||
+                        line.rfind("UFW · ", 0) == 0 || line.rfind("SSH · ", 0) == 0 ||
+                        (!line.empty() && line[0] >= '0' && line[0] <= '9')) {
+                        const auto rows = wrap(line, width, true);
                         for (const auto &row : rows) {
                             if (y >= room - 6) break;
                             draw_text(detail.get(), y++, 2, width, row);

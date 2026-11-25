@@ -104,7 +104,7 @@ def traffic_rows(database, first, last, *, name=None, daily=False, include_total
                 FROM traffic_intervals WHERE {where} GROUP BY {columns}'''
     if include_total:
         day_column = 'report_date, ' if daily else ''
-        grouping = 'GROUP BY report_date' if daily else 'HAVING COUNT(*) > 0'
+        grouping = 'GROUP BY report_date' if daily else "GROUP BY 'total'"
         query += f'''
             UNION ALL
             SELECT {day_column}NULL AS backend, SUM(upload), SUM(download), SUM(seconds)

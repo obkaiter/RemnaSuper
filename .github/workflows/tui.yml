@@ -3,6 +3,7 @@ name: RemnaSuper TUI
 on:
   push:
     branches: [tui]
+    paths-ignore: ['docs/**', 'README.md', 'AGENTS.md']
   pull_request:
     branches: [tui]
   workflow_dispatch:
@@ -108,6 +109,8 @@ jobs:
               assert table["rows"][-1][-1] == "2.00"
               text = subprocess.check_output([*cmd, "total"], text=True)
               assert "ИТОГО" in text and "2.00" in text
+              empty = json.loads(subprocess.check_output([*cmd, "--format", "json", "month", "2000-01"], text=True))
+              assert all("rows" not in part for part in empty["sections"])
           PY
       - name: Check ncurses in a pseudo-terminal
         env:
