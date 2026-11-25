@@ -56,6 +56,8 @@ curl -fsSL https://raw.githubusercontent.com/obkaiter/RemnaSuper/tui/install-tui
 Тёмная палитра с розовым выделением и фиолетовым фокусом в диалогах основана
 на теме [Dracula для Midnight Commander](https://github.com/dracula/midnight-commander).
 
+![RemnaSuper TUI в теме Dracula, xterm 100×28](docs/tui-100x28.png)
+
 Обе редакции используют одни RemnaNode, конфигурации служб и историю HAProxy.
 Операции записи в ncurses имеют свою общую блокировку и продолжают использовать
 блокировки исходных модулей. Изменения из Bash-редакции или root-оболочки
