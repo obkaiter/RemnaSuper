@@ -150,3 +150,97 @@ EOF
     success "IPv6 отключён на существующих и новых сетевых интерфейсах. Настройка сохранена для последующих загрузок."
     pause
 }
+
+_remove_ufw_ipv6_rules() (
+    local rules_file="$UFW_IPV6_RULES_FILE"
+    local command_name work_dir prepared_file backup_file ufw_status result=0 apply_live=0
+
+    for command_name in ufw awk cmp cp mktemp mv rm rmdir; do
+        check_command "$command_name" || return 1
+    done
+
+    if [[ ! -f "$rules_file" || -L "$rules_file" ]]; then
+        error "Обычный файл правил UFW не найден: $rules_file"
+        return 1
+    fi
+
+    work_dir="$(mktemp -d -- "${rules_file%/*}/.remnasuper-ufw-ipv6.XXXXXX")" || {
+        error "Не удалось создать временный каталог для правил UFW."
+        return 1
+    }
+    trap 'rm -f -- "$work_dir/original" "$work_dir/prepared"; rmdir -- "$work_dir"' EXIT
+    prepared_file="$work_dir/prepared"
+
+    if ! cp -p -- "$rules_file" "$work_dir/original" ||
+        ! cp -p -- "$work_dir/original" "$prepared_file"; then
+        error "Не удалось подготовить временную копию правил UFW."
+        return 1
+    fi
+
+    LC_ALL=C awk '
+        /^### RULES ###$/ { sections++; in_rules=1; print; next }
+        in_rules && /^(### END RULES ###|COMMIT)$/ { in_rules=0; closed++; print; next }
+        in_rules && /^### tuple ### / { removed++; next }
+        in_rules && /^-A ufw6-user-(logging-)?(input|output|forward) / { removed++; next }
+        in_rules && !/^[[:space:]]*(#|$)/ { invalid=1 }
+        { print }
+        END {
+            if (invalid || sections != 1 || closed != 1) exit 1
+            if (!removed) exit 3
+        }
+    ' "$work_dir/original" > "$prepared_file" || result=$?
+
+    case "$result" in
+        0) ;;
+        3) info "В UFW нет добавленных правил IPv6."; return 0 ;;
+        *) error "Не удалось безопасно обработать файл правил UFW: $rules_file"; return 1 ;;
+    esac
+
+    if ! ufw_status="$(LC_ALL=C ufw --dry-run status)"; then
+        error "Не удалось проверить поддержку IPv6 в UFW."
+        return 1
+    fi
+    if [[ "$ufw_status" == *"> Checking ip6tables"* ]]; then
+        if ! ufw_status="$(LC_ALL=C ufw status)"; then
+            error "Не удалось проверить состояние UFW."
+            return 1
+        fi
+        if [[ "$ufw_status" == "Status: active"* ]]; then
+            apply_live=1
+            check_command ip6tables-restore || return 1
+            if ! ip6tables-restore --wait 5 --noflush --test --table filter < "$prepared_file"; then
+                error "Подготовленные правила IPv6 не прошли проверку."
+                return 1
+            fi
+        fi
+    fi
+
+    backup_config_file "$rules_file" backup_file || return 1
+    if ! cmp -s -- "$work_dir/original" "$rules_file" || [[ -L "$rules_file" ]]; then
+        error "Файл правил UFW изменился во время подготовки. Запустите действие повторно."
+        return 1
+    fi
+    if ! mv -fT -- "$prepared_file" "$rules_file"; then
+        error "Не удалось сохранить правила UFW."
+        return 1
+    fi
+
+    if (( apply_live )) && ! ip6tables-restore --wait 5 --noflush --table filter < "$rules_file"; then
+        error "Не удалось применить правила IPv6."
+        if ! mv -fT -- "$work_dir/original" "$rules_file"; then
+            error "Не удалось восстановить файл правил UFW. Резервная копия: $backup_file"
+        fi
+        return 1
+    fi
+
+    success "Все добавленные правила IPv6 удалены из UFW."
+)
+
+remove_ufw_ipv6_rules() {
+    local result=0
+
+    header "Удаление правил IPv6 из UFW"
+    _remove_ufw_ipv6_rules || result=$?
+    pause
+    return "$result"
+}

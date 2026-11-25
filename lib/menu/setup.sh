@@ -23,6 +23,7 @@ show_setup_menu() {
     menu_item 12 "Установка/удаление geofiles"
     menu_item 13 "Ограничить исходящий SMTP"
     menu_item 14 "Управление Node Accelerator"
+    menu_item 15 "Удалить IPv6 из ufw"
 
     menu_section "Навигация"
     menu_back_item
@@ -70,6 +71,9 @@ initial_setup_menu() {
             12) geofiles_menu ;;
             13) smtp_egress_menu ;;
             14) node_accelerator_menu ;;
+            15) run_action "Удалить IPv6 из ufw" \
+                "Будет сохранена резервная копия /etc/ufw/user6.rules и удалены все добавленные через UFW правила IPv6. Если UFW активен и обслуживает IPv6, новые правила будут сразу применены. Доступ по IPv6, включая SSH, может измениться." \
+                remove_ufw_ipv6_rules ;;
             0) return ;;
         esac
     done
