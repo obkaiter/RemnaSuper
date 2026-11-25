@@ -53,6 +53,8 @@ curl -fsSL https://raw.githubusercontent.com/obkaiter/RemnaSuper/tui/install-tui
 | Bash | `sudo rs` | `/opt/RemnaSuper` | `main` |
 | ncurses | `sudo rs-tui` | `/opt/RemnaSuper-tui/current` | `tui` |
 
+![RemnaSuper TUI в xterm 100×28](docs/tui-100x28.png)
+
 Обе редакции используют одни RemnaNode, конфигурации служб и историю HAProxy.
 Операции записи в ncurses имеют свою общую блокировку и продолжают использовать
 блокировки исходных модулей. Изменения из Bash-редакции или root-оболочки
