@@ -2,16 +2,23 @@ add table inet remnasuper_smtp
 delete table inet remnasuper_smtp
 
 table inet remnasuper_smtp {
+    chain smtp_egress {
+        tcp dport 25 counter reject with tcp reset
+        ct state established return
+        ct state new tcp flags & (fin | syn | rst | ack) == syn limit rate 5/hour burst 5 packets counter return
+        meta l4proto tcp counter reject with tcp reset
+    }
+
     chain output {
         type filter hook output priority -5; policy accept;
         ct direction reply return
-        tcp dport { 25, 465, 587 } counter reject with tcp reset
+        tcp dport { 25, 465, 587 } jump smtp_egress
     }
 
     chain forward {
         type filter hook forward priority -5; policy accept;
         ct direction reply return
         meta iifkind "bridge" ct status dnat return
-        meta iifkind "bridge" tcp dport { 25, 465, 587 } counter reject with tcp reset
+        meta iifkind "bridge" tcp dport { 25, 465, 587 } jump smtp_egress
     }
 }

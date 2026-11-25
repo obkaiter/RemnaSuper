@@ -56,16 +56,17 @@ enable_smtp_egress_service() (
     return 1
 )
 
-close_outbound_smtp() {
-    header "Закрыть исходящий SMTP"
+limit_outbound_smtp() {
+    header "Ограничить исходящий SMTP"
     if ! enable_smtp_egress_service; then
         pause
         return 1
     fi
 
-    success "Исходящий TCP на порты 25, 465 и 587 заблокирован по IPv4 и IPv6. Служба включена в автозапуск."
-    info "Для дополнительной блокировки в Xray добавьте это правило в routing.rules перед разрешающими правилами."
+    success "TCP/25 заблокирован. Для TCP/465 и 587 действует общий лимит в 5 попыток в час с запасом до 5 попыток подряд. Служба включена в автозапуск."
+    info "Если в профиле Xray уже есть правило блокировки TCP/25, 465 и 587, замените его правилом ниже."
+    info "Для дополнительной блокировки TCP/25 добавьте это правило в routing.rules перед разрешающими правилами."
     info "Укажите тег существующего outbound с протоколом blackhole, если он отличается."
-    printf '\n%s\n\n' '{"type":"field","network":"tcp","port":"25,465,587","outboundTag":"blackhole"}'
+    printf '\n%s\n\n' '{"type":"field","network":"tcp","port":"25","outboundTag":"blackhole"}'
     pause
 }
