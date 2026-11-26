@@ -26,7 +26,7 @@ _remnasuper_load_system_modules() {
     source "$module_dir/ipv6.sh"
     source "$module_dir/tls_hsts.sh"
     source "$module_dir/session.sh"
-    source "$module_dir/network_diagnostics.sh"
+    source "$module_dir/iperf3_ru.sh"
 }
 
 _remnasuper_load_system_modules

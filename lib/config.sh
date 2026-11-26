@@ -17,6 +17,8 @@ GITHUB_RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANC
 GITHUB_TARBALL_URL="https://codeload.github.com/${GITHUB_REPO}/tar.gz/refs/heads/${GITHUB_BRANCH}"
 NODE_PRECHECK_URL="https://vpn-hub.pro/static/tools/node-precheck.sh"
 DPI_DETECTOR_URL="https://codeload.github.com/Runnin4ik/dpi-detector/tar.gz/13ddc49bf5279c7fc08d3f3cca0e974b9a555191"
+IPERF3_RU_URL="https://raw.githubusercontent.com/itdoginfo/russian-iperf3-servers/301b466dd2accd2393524044fbeb56c63c7cd078/speedtest.sh"
+IPERF3_RU_SHA256="068d37703beab0ec7e44a24ed45f6e911af51511ea6476a85add7250fab3d3dc"
 
 NODE_DIR="/opt/remnanode"
 AGENT_DIR="/opt/remnawave-node-agent"
