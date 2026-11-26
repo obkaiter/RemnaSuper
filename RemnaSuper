@@ -32,7 +32,7 @@ source "$APP_DIR/lib/menu.sh"
 main() {
     check_root "$0"
     show_startup
-    if ! check_for_updates "$@" && [[ -t 0 && -t 1 ]]; then
+    if ! check_for_updates auto "$@" && [[ -t 0 && -t 1 ]]; then
         pause
     fi
     main_menu

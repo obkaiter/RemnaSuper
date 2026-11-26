@@ -476,8 +476,7 @@ show_psiphon_outbound() {
     pause
 }
 
-uninstall_psiphon() {
-    header "Удаление Psiphon"
+_uninstall_psiphon() {
     local exit_code
     local expected_dir="/opt/vps-psiphon"
     local expected_cli="/usr/local/sbin/vps-psiphon"
@@ -490,18 +489,17 @@ uninstall_psiphon() {
     if [ "$PSIPHON_DIR" != "$expected_dir" ] ||
         [ "$PSIPHON_CLI" != "$expected_cli" ]; then
         error "Обнаружены небезопасные пути удаления Psiphon."
-        pause
-        return
+        return 1
     fi
 
     if [ ! -x "$PSIPHON_CLI" ]; then
-        if [ -e "$PSIPHON_DIR" ] || [ -e "$PSIPHON_ENV_FILE" ]; then
+        if psiphon_instance_exists "$PSIPHON_INSTANCE"; then
             error "Установка Psiphon повреждена: штатная команда удаления не найдена: $PSIPHON_CLI"
         else
-            warn "Psiphon не установлен."
+            info "Psiphon уже удалён."
+            return 0
         fi
-        pause
-        return
+        return 1
     fi
 
     step "Остановка сервисов и удаление Psiphon..."
@@ -510,10 +508,17 @@ uninstall_psiphon() {
 
     if [ "$exit_code" -ne 0 ]; then
         error "Удаление Psiphon завершилось с ошибкой. Код: $exit_code"
-        pause
-        return
+        return 1
     fi
 
     success "Подключение Psiphon №$PSIPHON_INSTANCE, его сервисы, контейнер, настройки и Xray outbound удалены."
+}
+
+uninstall_psiphon() {
+    local result=0
+
+    header "Удаление Psiphon"
+    _uninstall_psiphon || result=$?
     pause
+    return "$result"
 }

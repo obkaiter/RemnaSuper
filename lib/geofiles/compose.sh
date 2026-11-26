@@ -77,7 +77,7 @@ configure_geofile_volumes() (
         warn "Файл $COMPOSE_FILE не найден. Изменение volumes и перезапуск RemnaNode пропущены."
         return 0
     fi
-    if [[ -L "$COMPOSE_FILE" ]]; then
+    if [[ "$action" == install && -L "$COMPOSE_FILE" ]]; then
         error "Файл $COMPOSE_FILE является символической ссылкой."
         return 1
     fi
@@ -100,6 +100,10 @@ configure_geofile_volumes() (
         check_docker && (cd "$NODE_DIR" && docker compose config --quiet) &&
             restart_remnanode_compose
         return $?
+    fi
+    if [[ -L "$COMPOSE_FILE" ]]; then
+        error "Файл $COMPOSE_FILE является символической ссылкой."
+        return 1
     fi
 
     check_docker || return 1

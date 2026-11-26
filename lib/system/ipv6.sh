@@ -58,31 +58,27 @@ _ipv6_restore_sysctl_settings() {
     return "$result"
 }
 
-disable_ipv6() {
+_disable_ipv6() {
     local config_file="$IPV6_SYSCTL_CONFIG"
     local temp_file="" sysctl_file interface setting_key setting_value
     local config_created=0
     local -a previous_settings=()
 
-    header "Отключение IPv6"
-    check_command sysctl || { pause; return 1; }
-    check_command mktemp || { pause; return 1; }
-    check_command awk || { pause; return 1; }
+    check_command sysctl || return 1
+    check_command mktemp || return 1
+    check_command awk || return 1
 
     if [ -L "$config_file" ]; then
         error "Файл настройки IPv6 является символической ссылкой: $config_file"
-        pause
         return 1
     fi
     if [ -e "$config_file" ]; then
         if [ ! -f "$config_file" ] || ! _ipv6_sysctl_config_is_managed "$config_file"; then
             error "Файл $config_file уже существует и содержит другие настройки. Он не изменён. Проверьте его вручную."
-            pause
             return 1
         fi
     elif [ ! -d "${config_file%/*}" ]; then
         error "Каталог sysctl не найден: ${config_file%/*}"
-        pause
         return 1
     fi
 
@@ -93,21 +89,18 @@ disable_ipv6() {
         setting_key="net.ipv6.conf.$interface.disable_ipv6"
         if ! setting_value="$(sysctl -n "$setting_key")"; then
             error "Не удалось прочитать текущую настройку IPv6: $setting_key"
-            pause
             return 1
         fi
         previous_settings+=("$setting_key=$setting_value")
     done
     if [ "${#previous_settings[@]}" -eq 0 ]; then
         error "Настройки IPv6 через sysctl недоступны в этой системе."
-        pause
         return 1
     fi
 
     if [ ! -e "$config_file" ]; then
         if ! temp_file="$(mktemp "${config_file}.XXXXXX")"; then
             error "Не удалось создать временный файл настройки IPv6."
-            pause
             return 1
         fi
         if ! cat > "$temp_file" <<'EOF'
@@ -118,13 +111,11 @@ EOF
         then
             rm -f -- "$temp_file" || warn "Не удалось удалить временный файл $temp_file."
             error "Не удалось подготовить настройки IPv6."
-            pause
             return 1
         fi
         if ! chmod 0644 -- "$temp_file" || ! ln -- "$temp_file" "$config_file"; then
             rm -f -- "$temp_file" || warn "Не удалось удалить временный файл $temp_file."
             error "Не удалось безопасно создать $config_file. Возможно, файл уже появился."
-            pause
             return 1
         fi
         config_created=1
@@ -140,7 +131,6 @@ EOF
         if [ -n "$temp_file" ]; then
             rm -f -- "$temp_file" || warn "Не удалось удалить временный файл $temp_file."
         fi
-        pause
         return 1
     fi
 
@@ -148,10 +138,9 @@ EOF
         rm -f -- "$temp_file" || warn "Не удалось удалить временную ссылку $temp_file."
     fi
     success "IPv6 отключён на существующих и новых сетевых интерфейсах. Настройка сохранена для последующих загрузок."
-    pause
 }
 
-_remove_ufw_ipv6_rules() (
+_disable_ipv6_with_ufw() (
     local rules_file="$UFW_IPV6_RULES_FILE"
     local command_name work_dir prepared_file backup_file ufw_status result=0 apply_live=0
 
@@ -192,7 +181,7 @@ _remove_ufw_ipv6_rules() (
 
     case "$result" in
         0) ;;
-        3) info "В UFW нет добавленных правил IPv6."; return 0 ;;
+        3) info "В UFW нет добавленных правил IPv6."; _disable_ipv6; return $? ;;
         *) error "Не удалось безопасно обработать файл правил UFW: $rules_file"; return 1 ;;
     esac
 
@@ -227,20 +216,27 @@ _remove_ufw_ipv6_rules() (
 
     if (( apply_live )) && ! ip6tables-restore --wait 5 --noflush --table filter < "$rules_file"; then
         error "Не удалось применить правила IPv6."
-        if ! mv -fT -- "$work_dir/original" "$rules_file"; then
-            error "Не удалось восстановить файл правил UFW. Резервная копия: $backup_file"
-        fi
-        return 1
+    elif _disable_ipv6; then
+        success "Все добавленные правила IPv6 удалены из UFW."
+        return 0
     fi
 
-    success "Все добавленные правила IPv6 удалены из UFW."
+    if ! mv -fT -- "$work_dir/original" "$rules_file" ||
+        { (( apply_live )) && ! ip6tables-restore --wait 5 --noflush --table filter < "$rules_file"; }; then
+        error "Не удалось полностью восстановить правила UFW. Резервная копия находится в $backup_file"
+    fi
+    return 1
 )
 
-remove_ufw_ipv6_rules() {
+disable_ipv6() {
     local result=0
 
-    header "Удаление правил IPv6 из UFW"
-    _remove_ufw_ipv6_rules || result=$?
+    header "Отключение IPv6"
+    if [[ -e "$UFW_IPV6_RULES_FILE" || -L "$UFW_IPV6_RULES_FILE" ]]; then
+        _disable_ipv6_with_ufw || result=$?
+    else
+        _disable_ipv6 || result=$?
+    fi
     pause
     return "$result"
 }

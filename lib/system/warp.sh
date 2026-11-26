@@ -9,13 +9,12 @@ run_warp_native_script() {
     local script_path
     local exit_code
 
-    check_command curl || { pause; return 1; }
-    check_command bash || { pause; return 1; }
-    check_command mktemp || { pause; return 1; }
+    check_command curl || return 1
+    check_command bash || return 1
+    check_command mktemp || return 1
 
     temp_dir="$(mktemp -d)" || {
         error "Не удалось создать временный каталог для скрипта WARP."
-        pause
         return 1
     }
     script_path="$temp_dir/$script_name.sh"
@@ -26,7 +25,6 @@ run_warp_native_script() {
         error "Не удалось скачать скрипт $script_name для WARP."
         rm -f -- "$script_path"
         rmdir -- "$temp_dir" 2>/dev/null || true
-        pause
         return 1
     fi
 
@@ -37,7 +35,6 @@ run_warp_native_script() {
         error "Загруженный файл не прошёл проверку скрипта $script_name WARP."
         rm -f -- "$script_path"
         rmdir -- "$temp_dir" 2>/dev/null || true
-        pause
         return 1
     fi
 
@@ -50,7 +47,6 @@ run_warp_native_script() {
 
     if [ "$exit_code" -ne 0 ]; then
         error "Скрипт $script_name WARP завершился с ошибкой. Код: $exit_code"
-        pause
         return "$exit_code"
     fi
 
@@ -58,13 +54,30 @@ run_warp_native_script() {
 }
 
 install_warp_native() {
-    run_warp_native_script "install" "$WARP_NATIVE_INSTALLER_URL" \
-        'WGCF_DIR="/opt/warp-native/wgcf"' 'function rollback_install'
+    if ! run_warp_native_script "install" "$WARP_NATIVE_INSTALLER_URL" \
+        'WGCF_DIR="/opt/warp-native/wgcf"' 'function rollback_install'; then
+        pause
+        return 1
+    fi
+    if [[ "$REMNASUPER_APP_DIR" == "$INSTALL_DIR" ]] &&
+        ! touch -- "$WARP_NATIVE_MARKER"; then
+        error "Не удалось сохранить отметку об установке WARP."
+        pause
+        return 1
+    fi
+}
+
+_uninstall_warp_native() {
+    run_warp_native_script "uninstall" "$WARP_NATIVE_UNINSTALLER_URL" \
+        'systemctl disable --now wg-quick@warp' 'rm -rf /opt/warp-native' &&
+        rm -f -- "$WARP_NATIVE_MARKER"
 }
 
 uninstall_warp_native() {
-    run_warp_native_script "uninstall" "$WARP_NATIVE_UNINSTALLER_URL" \
-        'systemctl disable --now wg-quick@warp' 'rm -rf /opt/warp-native'
+    if ! _uninstall_warp_native; then
+        pause
+        return 1
+    fi
 }
 
 show_warp_status() {

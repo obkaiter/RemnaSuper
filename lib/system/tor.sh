@@ -339,23 +339,25 @@ remove_tor_include_block() {
     [ -f "$TOR_MAIN_CONFIG" ] || return 0
     grep -Fq '# BEGIN REMNASUPER TOR' "$TOR_MAIN_CONFIG" || return 0
 
-    tmp_file="$(mktemp)" || return 1
-    if awk '
-        /^# BEGIN REMNASUPER TOR$/ { skipping=1; next }
-        /^# END REMNASUPER TOR$/ { skipping=0; next }
+    if [[ -L "$TOR_MAIN_CONFIG" ]]; then
+        error "Файл $TOR_MAIN_CONFIG является символической ссылкой."
+        return 1
+    fi
+    tmp_file="$(mktemp "$TOR_MAIN_CONFIG.remnasuper.XXXXXX")" || return 1
+    if cp -p -- "$TOR_MAIN_CONFIG" "$tmp_file" && awk '
+        /^# BEGIN REMNASUPER TOR$/ { if (found++) exit 1; skipping=1; next }
+        /^# END REMNASUPER TOR$/ { if (!skipping) exit 1; skipping=0; next }
         !skipping { print }
-    ' "$TOR_MAIN_CONFIG" > "$tmp_file"; then
-        chmod --reference="$TOR_MAIN_CONFIG" "$tmp_file" 2>/dev/null || chmod 644 "$tmp_file"
-        chown --reference="$TOR_MAIN_CONFIG" "$tmp_file" 2>/dev/null || true
-        mv "$tmp_file" "$TOR_MAIN_CONFIG"
+        END { if (skipping) exit 1 }
+    ' "$TOR_MAIN_CONFIG" > "$tmp_file" &&
+        mv -fT -- "$tmp_file" "$TOR_MAIN_CONFIG"; then
         return 0
     fi
     rm -f "$tmp_file"
     return 1
 }
 
-uninstall_tor() {
-    header "Удаление Tor"
+_uninstall_tor() {
     local package
     local remove_tor_package=0
     local service_unit=""
@@ -363,22 +365,19 @@ uninstall_tor() {
 
     if [ "$TOR_DIR" != "/opt/remnasuper-tor" ] || [ "$TOR_CONFIG_FILE" != "/etc/tor/torrc.d/remnasuper.conf" ]; then
         error "Обнаружены небезопасные пути удаления Tor."
-        pause
-        return
+        return 1
     fi
 
     if [ ! -e "$TOR_DIR" ] && [ ! -f "$TOR_CONFIG_FILE" ]; then
-        warn "Интеграция Tor от RemnaSuper не установлена."
-        pause
-        return
+        info "Интеграция Tor от RemnaSuper уже удалена."
+        return 0
     fi
 
     if ! remove_tor_include_block; then
         error "Не удалось удалить include-блок RemnaSuper из $TOR_MAIN_CONFIG."
-        pause
-        return
+        return 1
     fi
-    rm -f -- "$TOR_CONFIG_FILE" "$TOR_OUTBOUND_FILE"
+    rm -f -- "$TOR_CONFIG_FILE" "$TOR_OUTBOUND_FILE" || return 1
 
     if [ -f "$TOR_PACKAGE_MARKER" ]; then
         while IFS= read -r package; do
@@ -400,27 +399,36 @@ uninstall_tor() {
         [ -n "$service_unit" ] && systemctl stop "$service_unit" >/dev/null 2>&1 || true
         if ! DEBIAN_FRONTEND=noninteractive apt-get purge -y "${packages_to_remove[@]}"; then
             error "Не удалось удалить пакеты Tor. Маркер установки сохранён для повторной попытки."
-            pause
-            return
+            return 1
         fi
         if [ "$remove_tor_package" -eq 0 ] && command -v tor >/dev/null 2>&1; then
             step "Перезапуск сохранённой установки Tor без настроек RemnaSuper..."
             if ! restart_tor_service; then
-                warn "Не удалось перезапустить сохранённую установку Tor. Проверьте её конфигурацию вручную."
+                error "Не удалось перезапустить сохранённую установку Tor."
+                return 1
             fi
         fi
     elif command -v tor >/dev/null 2>&1; then
         step "Перезапуск существовавшей ранее установки Tor без настроек RemnaSuper..."
         if ! restart_tor_service; then
-            warn "Не удалось перезапустить стороннюю установку Tor. Проверьте её конфигурацию вручную."
+            error "Не удалось перезапустить стороннюю установку Tor."
+            return 1
         fi
     fi
 
-    rm -f -- "$TOR_PACKAGE_MARKER"
-    if ! rmdir "$TOR_DIR" 2>/dev/null; then
+    rm -f -- "$TOR_PACKAGE_MARKER" || return 1
+    if [[ -d "$TOR_DIR" ]] && ! rmdir "$TOR_DIR" 2>/dev/null; then
         warn "Каталог $TOR_DIR содержит сторонние файлы и поэтому сохранён."
     fi
 
     success "Интеграция Tor и Xray outbound удалены."
+}
+
+uninstall_tor() {
+    local result=0
+
+    header "Удаление Tor"
+    _uninstall_tor || result=$?
     pause
+    return "$result"
 }

@@ -223,25 +223,30 @@ perform_update() {
 }
 
 check_for_updates() {
-    if [ "${REMNASUPER_SKIP_UPDATE:-0}" = "1" ]; then
+    local mode="$1" remote_version
+    shift
+
+    if [[ "$mode" == auto && "${REMNASUPER_SKIP_UPDATE:-0}" == 1 ]]; then
         warn "Автообновление пропущено: REMNASUPER_SKIP_UPDATE=1."
         return 0
     fi
 
     if ! check_command curl >/dev/null 2>&1; then
-        warn "Автообновление пропущено: curl не найден."
-        return 0
+        warn "Проверка обновления пропущена: curl не найден."
+        [[ "$mode" == auto ]]
+        return $?
     fi
     if ! check_command tar >/dev/null 2>&1; then
-        warn "Автообновление пропущено: tar не найден."
-        return 0
+        warn "Проверка обновления пропущена: tar не найден."
+        [[ "$mode" == auto ]]
+        return $?
     fi
 
-    local remote_version
     if ! remote_version="$(fetch_remote_version 2>/dev/null)" ||
         [[ ! "$remote_version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
         warn "Не удалось проверить версию на GitHub."
-        return 0
+        [[ "$mode" == auto ]]
+        return $?
     fi
 
     if version_gt "$remote_version" "$REMNASUPER_VERSION"; then

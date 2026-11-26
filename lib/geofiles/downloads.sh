@@ -26,7 +26,7 @@ update_geofile_cron() {
     local filename="$1"
     local url="${2:-}"
     local target="${GEOFILES_DIR}/${filename}"
-    local entries
+    local entries updated_entries
 
     if ! entries="$(LC_ALL=C crontab -l 2>&1)"; then
         if [[ "$entries" != 'no crontab for '* ]]; then
@@ -37,10 +37,13 @@ update_geofile_cron() {
         entries=''
     fi
 
-    entries="$(printf '%s\n' "$entries" | LC_ALL=C awk -v tmp="'$target.tmp.XXXXXX'" '!index($0, tmp)')" || return 1
+    updated_entries="$(printf '%s\n' "$entries" | LC_ALL=C awk -v tmp="'$target.tmp.XXXXXX'" '!index($0, tmp)')" || return 1
+    if [[ -z "$url" && "$entries" == "$updated_entries" ]]; then
+        return 0
+    fi
 
     if ! {
-        if [[ -n "$entries" ]]; then printf '%s\n' "$entries"; fi
+        if [[ -n "$updated_entries" ]]; then printf '%s\n' "$updated_entries"; fi
         if [[ -n "$url" ]]; then
             printf "0 0 * * * exec 9>'%s'; /usr/bin/flock 9 || exit \$?; [ -f '%s' ] || exit 0; " \
                 "$GEOFILES_LOCK" "$target"

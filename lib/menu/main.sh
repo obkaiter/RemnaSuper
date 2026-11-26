@@ -4,29 +4,41 @@ show_menu() {
     clear
     show_brand "Главное меню"
 
-    menu_section "Настройка"
-    menu_item 1 "Первоначальная настройка"
-    menu_item 14 "Настройка релея"
+    menu_item 1 "Настройка VPS"
+    menu_item 2 "Настройка Remnanode"
+    menu_item 3 "Настройка релея"
+    menu_item 4 "Управление туннелями"
+    menu_item 5 "Диагностика VPS, Remnanode"
 
-    menu_section "Управление"
-    menu_item 2 "Управление Psiphon"
-    menu_item 3 "Управление Tor"
-    menu_item 4 "Управление warp"
-    menu_item 5 "Управление ss-zapret2"
-    menu_item 6 "Перезапустить ноду"
-
-    menu_section "Диагностика"
-    menu_item 7 "Запустить Davoyan/ipregion"
-    menu_item 8 "Запустить IP Check Place"
-    menu_item 9 "Запустить bench.sh (проверка скорости канала)"
-    menu_item 10 "Проверить доступность сервисов"
-    menu_item 11 "Просмотр xlogs"
-    menu_item 12 "Просмотр логов Xray"
-    menu_item 13 "iperf3 до российских серверов"
-    menu_item 15 "Проверить CPU steal"
+    menu_section "Управление RemnaSuper"
+    menu_item 6 "Обновить скрипт"
+    menu_danger_item 7 "Удалить скрипт"
 
     menu_section "Навигация"
     menu_danger_item 0 "Выход"
+}
+
+update_script() {
+    local result=0
+
+    check_for_updates manual || result=$?
+    pause
+    return "$result"
+}
+
+remove_script() {
+    local result=0
+
+    confirm_action "Окончательное подтверждение удаления" \
+        "Команда rs, каталог /opt/RemnaSuper, резервные копии и история HAProxy будут удалены. Удаление может прервать трафик релея и туннелей, а также подключения при пересоздании контейнеров RemnaNode. Если нужны резервные копии, сохраните их перед продолжением." \
+        "DELETE" || return
+    if uninstall_remnasuper; then
+        exit 0
+    else
+        result=$?
+    fi
+    pause
+    return "$result"
 }
 
 main_menu() {
@@ -35,39 +47,17 @@ main_menu() {
     while true; do
         select_menu choice 1 show_menu || return
         case $choice in
-            1) initial_setup_menu ;;
-            14) relay_menu ;;
-            2) psiphon_menu ;;
-            3) tor_menu ;;
-            4) warp_menu ;;
-            5) zapret_menu ;;
-            6) run_action "Перезапуск ноды" \
-                "Docker Compose перезапустит сервисы RemnaNode. Текущие подключения могут прерваться на 5-10 секунд." \
-                restart_node ;;
-            7) run_action "Запуск Davoyan/ipregion" \
-                "Будет скачан и запущен скрипт ipregion из репозитория Davoyan/ipregion." \
-                run_ipregion ;;
-            8) run_action "Запуск IP Check Place" \
-                "Будет скачан и запущен диагностический скрипт IP Check Place на английском языке." \
-                run_ip_check_place ;;
-            9) run_action "Запуск bench.sh (проверка скорости канала)" \
-                "Будет скачан и запущен скрипт bench.sh для проверки скорости канала." \
-                run_bench ;;
-            10) run_action "Проверка доступности сервисов" \
-                "При необходимости apt-get обновит индекс и установит системный Python, пакет venv для его версии, CA-сертификаты и недостающие утилиты. Эти пакеты останутся на сервере. Будет скачан DPI Detector из репозитория Runnin4ik/dpi-detector, зависимости Python будут установлены во временное окружение. Скрипт запустится от root и выполнит выбранные сетевые проверки по внешним адресам. После выхода временные файлы будут удалены." \
-                run_dpi_detector ;;
-            11) run_action "Просмотр xlogs" \
-                "Будет выполнена команда docker exec remnanode xlogs. Для выхода нажмите Ctrl+C." \
-                view_xlogs ;;
-            12) run_action "Просмотр логов Xray" \
-                "Будет выполнена команда tail -f /var/log/remnanode/access.log. Для выхода нажмите Ctrl+C." \
-                view_xray_logs ;;
-            13) run_action "iperf3 до российских серверов" \
-                "RemnaSuper скачает speedtest.sh из itdoginfo/russian-iperf3-servers во временный файл, проверит SHA-256 и запустит скрипт от root. Замер создаст исходящий TCP-трафик к публичным серверам на портах 5201–5209 и отправит ICMP-запросы. Нагрузка может замедлить VPN и расходовать платный трафик." \
-                run_iperf3_ru ;;
-            15) run_action "Проверить CPU steal" \
-                "RemnaSuper дважды прочитает статистику Linux из /proc/stat с интервалом 5 секунд и покажет долю времени, которую гипервизор отнял у виртуальных процессоров." \
-                run_cpu_steal ;;
+            1) vps_setup_menu ;;
+            2) node_setup_menu ;;
+            3) relay_menu ;;
+            4) tunnels_menu ;;
+            5) diagnostics_menu ;;
+            6) run_action "Обновить скрипт" \
+                "RemnaSuper проверит версию на GitHub. Если есть обновление, приложение скачает и установит его, затем перезапустится. Активный сборщик HAProxy может быть перезапущен." \
+                update_script ;;
+            7) run_action "Удалить скрипт" \
+                "RemnaSuper отключит и удалит свои службы, фильтр SMTP, конфигурации SSH, IPv6, fail2ban и ротации логов, geofiles и задания cron, настройки релея, сайт-заглушку и свои туннели. Для WARP с отметкой об установке будет скачан и запущен от root скрипт удаления distillium/warp-native, который может удалить пакеты WireGuard. Удаление политики SSH может снова разрешить вход по паролю. Уберите ссылки на удаляемые geofiles и туннели из профиля Xray. Потребуется второе подтверждение." \
+                remove_script ;;
             0) run_action "Выход" \
                 "Работа RemnaSuper будет завершена." \
                 exit_menu ;;

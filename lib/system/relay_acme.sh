@@ -79,13 +79,17 @@ check_relay_acme_webroot() (
     return 1
 )
 
+render_relay_acme_cron() {
+    printf 'PATH=/usr/sbin:/usr/bin:/sbin:/bin\n27 3 * * * root flock -n %s %s/acme.sh --cron --home %s\n' \
+        "$INSTALL_DIR" "$RELAY_ACME_HOME" "$RELAY_ACME_HOME"
+}
+
 install_relay_acme_cron() (
     local candidate
 
     candidate="$(mktemp "${RELAY_ACME_CRON}.XXXXXX")" || return 1
     trap 'rm -f -- "$candidate"' EXIT
-    printf 'PATH=/usr/sbin:/usr/bin:/sbin:/bin\n27 3 * * * root flock -n %s %s/acme.sh --cron --home %s\n' \
-        "$INSTALL_DIR" "$RELAY_ACME_HOME" "$RELAY_ACME_HOME" > "$candidate" || return 1
+    render_relay_acme_cron > "$candidate" || return 1
     if [[ -e "$RELAY_ACME_CRON" || -L "$RELAY_ACME_CRON" ]]; then
         if [[ -L "$RELAY_ACME_CRON" ]] || ! cmp -s "$candidate" "$RELAY_ACME_CRON"; then
             error "Путь $RELAY_ACME_CRON занят другим заданием cron."

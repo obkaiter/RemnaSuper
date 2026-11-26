@@ -49,6 +49,16 @@ initial_setup() {
     return 1
 }
 
+render_fail2ban_ssh_config() {
+    cat <<'EOF'
+[sshd]
+enabled = true
+maxretry = 4
+bantime = 1h
+findtime = 10m
+EOF
+}
+
 install_fail2ban() {
     header "Установка fail2ban"
     check_command apt || { pause; return; }
@@ -62,15 +72,8 @@ install_fail2ban() {
     fi
 
     step "Настройка защиты SSH..."
-    if ! cat >/etc/fail2ban/jail.d/local.conf <<'EOF'
-[sshd]
-enabled = true
-maxretry = 4
-bantime = 1h
-findtime = 10m
-EOF
-    then
-        error "Не удалось записать /etc/fail2ban/jail.d/local.conf."
+    if ! render_fail2ban_ssh_config > "$FAIL2BAN_SSH_CONFIG"; then
+        error "Не удалось записать $FAIL2BAN_SSH_CONFIG."
         pause
         return
     fi

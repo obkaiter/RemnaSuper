@@ -17,6 +17,33 @@ show_logrotate_menu() {
     menu_back_item
 }
 
+render_logrotate_profile() {
+    local rotation_policy="$1" retention="$2" dateext="$3"
+
+    printf '%s %s {\n' "$LOG_DIR/access.log" "$LOG_DIR/error.log"
+    printf '    %s\n' "$rotation_policy"
+    printf '    rotate %s\n' "$retention"
+    printf '%s\n' \
+        '    missingok' \
+        '    notifempty' \
+        '    compress' \
+        '    delaycompress' \
+        '    create 644 root root' \
+        '    sharedscripts'
+    if [ "$dateext" = true ]; then
+        printf '%s\n' '    dateext'
+    fi
+    cat <<EOF
+    postrotate
+        if [ -f "$NODE_DIR/docker-compose.yml" ] &&
+            docker compose -f "$NODE_DIR/docker-compose.yml" ps -q remnanode 2>/dev/null | grep -q .; then
+            docker compose -f "$NODE_DIR/docker-compose.yml" restart remnanode
+        fi
+    endscript
+}
+EOF
+}
+
 write_logrotate_profile() {
     local rotation_policy="$1"
     local retention="$2"
@@ -27,30 +54,7 @@ write_logrotate_profile() {
         error "Не удалось создать временный файл конфигурации logrotate."
         return 1
     }
-    if ! {
-        printf '%s %s {\n' "$LOG_DIR/access.log" "$LOG_DIR/error.log"
-        printf '    %s\n' "$rotation_policy"
-        printf '    rotate %s\n' "$retention"
-        printf '%s\n' \
-            '    missingok' \
-            '    notifempty' \
-            '    compress' \
-            '    delaycompress' \
-            '    create 644 root root' \
-            '    sharedscripts'
-        if [ "$dateext" = true ]; then
-            printf '%s\n' '    dateext'
-        fi
-        cat <<EOF
-    postrotate
-        if [ -f "$NODE_DIR/docker-compose.yml" ] &&
-            docker compose -f "$NODE_DIR/docker-compose.yml" ps -q remnanode 2>/dev/null | grep -q .; then
-            docker compose -f "$NODE_DIR/docker-compose.yml" restart remnanode
-        fi
-    endscript
-}
-EOF
-    } > "$tmp_file"; then
+    if ! render_logrotate_profile "$rotation_policy" "$retention" "$dateext" > "$tmp_file"; then
         rm -f -- "$tmp_file"
         error "Не удалось сформировать конфигурацию logrotate."
         return 1

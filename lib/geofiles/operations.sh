@@ -37,7 +37,7 @@ uninstall_geofile() (
     local filename lock_fd
 
     header "Удаление geofiles: $repo_name"
-    check_command crontab && check_command flock || return 1
+    check_command flock || return 1
     if ! { exec {lock_fd}> "$GEOFILES_LOCK"; } || ! flock "$lock_fd"; then
         error "Не удалось получить блокировку geofiles."
         return 1
@@ -45,7 +45,9 @@ uninstall_geofile() (
     configure_geofile_volumes remove "$@" || return 1
 
     for filename in "$@"; do
-        update_geofile_cron "$filename" || return 1
+        if command -v crontab >/dev/null; then
+            update_geofile_cron "$filename" || return 1
+        fi
         if ! rm -f -- "$GEOFILES_DIR/$filename"; then
             error "Не удалось удалить $GEOFILES_DIR/$filename."
             return 1

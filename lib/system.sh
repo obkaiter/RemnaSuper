@@ -28,6 +28,7 @@ _remnasuper_load_system_modules() {
     source "$module_dir/session.sh"
     source "$module_dir/iperf3_ru.sh"
     source "$module_dir/cpu_steal.sh"
+    source "$module_dir/uninstall.sh"
 }
 
 _remnasuper_load_system_modules
