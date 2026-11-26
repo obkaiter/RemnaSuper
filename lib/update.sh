@@ -8,7 +8,8 @@ version_gt() {
 }
 
 fetch_remote_version() {
-    curl -fsSL --connect-timeout 5 --max-time 10 "$GITHUB_RAW_BASE/VERSION" | tr -d '[:space:]'
+    curl -fsSL --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' \
+        "$GITHUB_RAW_BASE/VERSION" | tr -d '[:space:]'
 }
 
 prepare_install_dir() {
@@ -40,72 +41,185 @@ prepare_install_dir() {
     fi
 }
 
-install_from_dir() {
-    local src_dir="$1"
+cleanup_runtime_install() {
+    local file failed=0
+
+    if (( activating && ! installed )); then
+        for file in "${runtime_files[@]}"; do
+            if [[ ! -e "$staging/next/$file" ]] &&
+                ! mv -T -- "$INSTALL_DIR/$file" "$staging/next/$file"; then
+                failed=1
+                continue
+            fi
+            if [[ -e "$staging/previous/$file" || -L "$staging/previous/$file" ]] &&
+                ! mv -T -- "$staging/previous/$file" "$INSTALL_DIR/$file"; then
+                failed=1
+            fi
+        done
+    fi
+    if (( failed )); then
+        error "Не удалось полностью вернуть прежнюю версию. Резервные файлы сохранены в $staging/previous."
+    else
+        rm -rf -- "$staging" || warn "Не удалось удалить временный каталог $staging."
+    fi
+}
+
+install_from_dir() (
+    local src_dir="$1" update_version="${2:-}"
+    local staging file installed_version activating=0 installed=0
+    local -a runtime_files=(lib RemnaSuper)
 
     if [ "$INSTALL_DIR" != "/opt/RemnaSuper" ]; then
         error "Небезопасный путь установки: $INSTALL_DIR"
         return 1
     fi
 
-    if [ ! -f "$src_dir/RemnaSuper" ] || [ ! -f "$src_dir/VERSION" ] || [ ! -d "$src_dir/lib" ] ||
-       [ ! -f "$src_dir/lib/system/relay_deploy.sh" ] ||
-       [ ! -f "$src_dir/lib/system/iperf3_ru.sh" ]; then
+    if [[ ! -s "$src_dir/RemnaSuper" || ! -s "$src_dir/VERSION" ]]; then
         error "В архиве обновления нет обязательных файлов."
         return 1
     fi
+    for file in config ui common update logs system geofiles menu system/relay_deploy; do
+        if [[ ! -s "$src_dir/lib/$file.sh" ]]; then
+            error "В архиве обновления нет обязательного файла lib/$file.sh."
+            return 1
+        fi
+    done
 
-    prepare_install_dir || return 1
-    (source "$src_dir/lib/system/relay_deploy.sh" && sync_relay_payload "$src_dir/haproxy") || return 1
-    rm -rf "${INSTALL_DIR:?}/lib"
-    cp -a "$src_dir/lib" "$INSTALL_DIR/"
-    install -m 755 "$src_dir/RemnaSuper" "$INSTALL_DIR/RemnaSuper"
-    install -m 644 "$src_dir/VERSION" "$INSTALL_DIR/VERSION"
+    source "$src_dir/lib/system/relay_deploy.sh" && validate_relay_payload "$src_dir/haproxy" || return 1
+    prepare_install_dir && lock_relay || return 1
 
-    if [ -f "$src_dir/install.sh" ]; then
-        install -m 755 "$src_dir/install.sh" "$INSTALL_DIR/install.sh"
+    if [[ -n "$update_version" && -f "$INSTALL_DIR/VERSION" ]]; then
+        if ! installed_version="$(tr -d '[:space:]' < "$INSTALL_DIR/VERSION")"; then
+            error "Не удалось прочитать установленную версию RemnaSuper."
+            return 1
+        fi
+        if version_gt "$installed_version" "$update_version"; then
+            error "Уже установлена более новая версия RemnaSuper ${installed_version}."
+            return 1
+        fi
     fi
-    if [ -f "$src_dir/README.md" ]; then
-        install -m 644 "$src_dir/README.md" "$INSTALL_DIR/README.md"
+    if [[ -d "$COMMAND_LINK" && ! -L "$COMMAND_LINK" ]]; then
+        error "Не удалось создать команду rs: $COMMAND_LINK является каталогом."
+        return 1
     fi
 
-    ln -sfn "$INSTALL_DIR/RemnaSuper" "$COMMAND_LINK"
-}
+    if ! staging="$(mktemp -d "$INSTALL_DIR/.update.XXXXXXXX")"; then
+        error "Не удалось создать временный каталог установки."
+        return 1
+    fi
+    trap cleanup_runtime_install EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
 
-perform_update() {
+    if ! mkdir -- "$staging/next" "$staging/previous" ||
+        ! cp -a -- "$src_dir/lib" "$staging/next/" ||
+        ! install -m 755 -- "$src_dir/RemnaSuper" "$staging/next/RemnaSuper" ||
+        ! install -m 644 -- "$src_dir/VERSION" "$staging/next/VERSION"; then
+        error "Не удалось подготовить файлы RemnaSuper к установке."
+        return 1
+    fi
+    if [[ -f "$src_dir/install.sh" ]]; then
+        if ! install -m 755 -- "$src_dir/install.sh" "$staging/next/install.sh"; then
+            error "Не удалось подготовить install.sh к установке."
+            return 1
+        fi
+        runtime_files+=(install.sh)
+    fi
+    if [[ -f "$src_dir/README.md" ]]; then
+        if ! install -m 644 -- "$src_dir/README.md" "$staging/next/README.md"; then
+            error "Не удалось подготовить README.md к установке."
+            return 1
+        fi
+        runtime_files+=(README.md)
+    fi
+    runtime_files+=(VERSION)
+
+    activating=1
+    for file in "${runtime_files[@]}"; do
+        if [[ -e "$INSTALL_DIR/$file" || -L "$INSTALL_DIR/$file" ]] &&
+            ! mv -T -- "$INSTALL_DIR/$file" "$staging/previous/$file"; then
+            error "Не удалось сохранить прежний файл или каталог $file."
+            return 1
+        fi
+        if ! mv -T -- "$staging/next/$file" "$INSTALL_DIR/$file"; then
+            error "Не удалось установить $file."
+            return 1
+        fi
+    done
+    if ! deploy_relay_payload "$src_dir/haproxy"; then
+        error "Не удалось обновить сборщик HAProxy."
+        return 1
+    fi
+    if [[ "$(readlink -- "$COMMAND_LINK" 2>/dev/null)" != "$INSTALL_DIR/RemnaSuper" ]] &&
+        ! ln -sfnT -- "$INSTALL_DIR/RemnaSuper" "$COMMAND_LINK"; then
+        error "Не удалось обновить команду rs: $COMMAND_LINK."
+        return 1
+    fi
+    installed=1
+)
+
+download_and_install_update() (
     local remote_version="$1"
-    shift
+    local commit tmp_dir archive src_root src_dir archive_version
+    local -a source_dirs
 
-    local tmp_dir archive src_root src_dir
-    cd / || return 1
-    tmp_dir="$(mktemp -d)" || return 1
+    if ! commit="$(curl -fsSL --connect-timeout 5 --max-time 10 \
+        -H 'Accept: application/vnd.github.sha' -H 'Cache-Control: no-cache' \
+        "https://api.github.com/repos/$GITHUB_REPO/commits/$GITHUB_BRANCH")" ||
+        [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+        error "Не удалось определить коммит обновления на GitHub."
+        return 1
+    fi
+    if ! tmp_dir="$(mktemp -d)"; then
+        error "Не удалось создать временный каталог загрузки."
+        return 1
+    fi
+    trap 'rm -rf -- "$tmp_dir"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     archive="$tmp_dir/remnasuper.tar.gz"
     src_root="$tmp_dir/source"
 
-    step "Скачивание RemnaSuper v${remote_version}..."
-    if ! curl -fL --connect-timeout 10 --max-time 60 -o "$archive" "$GITHUB_TARBALL_URL"; then
-        rm -rf "$tmp_dir"
+    step "Скачивание обновления RemnaSuper..."
+    if ! curl -fsSL --connect-timeout 10 --max-time 60 -o "$archive" "$GITHUB_TARBALL_BASE/$commit"; then
         error "Не удалось скачать обновление."
         return 1
     fi
 
-    mkdir -p "$src_root"
-    if ! tar -xzf "$archive" -C "$src_root"; then
-        rm -rf "$tmp_dir"
+    if ! mkdir -- "$src_root" || ! tar -xzf "$archive" -C "$src_root"; then
         error "Не удалось распаковать обновление."
         return 1
     fi
 
-    src_dir="$(find "$src_root" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-    if [ -z "$src_dir" ] || ! install_from_dir "$src_dir"; then
-        rm -rf "$tmp_dir"
+    source_dirs=("$src_root"/*)
+    src_dir="${source_dirs[0]:-}"
+    if (( ${#source_dirs[@]} != 1 )) || [[ ! -f "$src_dir/VERSION" ]] ||
+        ! archive_version="$(tr -d '[:space:]' < "$src_dir/VERSION")" ||
+        [[ ! "$archive_version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+        error "В архиве обновления нет корректного файла VERSION."
+        return 1
+    fi
+    if version_gt "$remote_version" "$archive_version"; then
+        error "Архив содержит версию ${archive_version}, а GitHub объявил ${remote_version}. Попробуйте обновиться позже."
         return 1
     fi
 
-    rm -rf "$tmp_dir"
-    success "Обновлено до версии ${remote_version}."
+    install_from_dir "$src_dir" "$archive_version" || return 1
+    success "Обновлено до версии ${archive_version}."
+)
+
+perform_update() {
+    local remote_version="$1" execfail=0
+    shift
+
+    download_and_install_update "$remote_version" || return 1
     info "Перезапуск RemnaSuper..."
-    exec "$COMMAND_LINK" "$@"
+    shopt -q execfail && execfail=1
+    shopt -s execfail
+    exec "$INSTALL_DIR/RemnaSuper" "$@"
+    (( execfail )) || shopt -u execfail
+    error "Не удалось запустить установленную версию RemnaSuper."
+    return 1
 }
 
 check_for_updates() {
@@ -124,9 +238,8 @@ check_for_updates() {
     fi
 
     local remote_version
-    remote_version="$(fetch_remote_version 2>/dev/null || true)"
-
-    if [ -z "$remote_version" ]; then
+    if ! remote_version="$(fetch_remote_version 2>/dev/null)" ||
+        [[ ! "$remote_version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
         warn "Не удалось проверить версию на GitHub."
         return 0
     fi

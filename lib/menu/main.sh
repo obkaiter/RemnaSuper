@@ -23,6 +23,7 @@ show_menu() {
     menu_item 11 "Просмотр xlogs"
     menu_item 12 "Просмотр логов Xray"
     menu_item 13 "iperf3 до российских серверов"
+    menu_item 15 "Проверить CPU steal"
 
     menu_section "Навигация"
     menu_danger_item 0 "Выход"
@@ -64,6 +65,9 @@ main_menu() {
             13) run_action "iperf3 до российских серверов" \
                 "RemnaSuper скачает speedtest.sh из itdoginfo/russian-iperf3-servers во временный файл, проверит SHA-256 и запустит скрипт от root. Замер создаст исходящий TCP-трафик к публичным серверам на портах 5201–5209 и отправит ICMP-запросы. Нагрузка может замедлить VPN и расходовать платный трафик." \
                 run_iperf3_ru ;;
+            15) run_action "Проверить CPU steal" \
+                "RemnaSuper дважды прочитает статистику Linux из /proc/stat с интервалом 5 секунд и покажет долю времени, которую гипервизор отнял у виртуальных процессоров." \
+                run_cpu_steal ;;
             0) run_action "Выход" \
                 "Работа RemnaSuper будет завершена." \
                 exit_menu ;;

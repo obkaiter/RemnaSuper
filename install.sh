@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALL_DIR="/opt/RemnaSuper"
-COMMAND_LINK="/usr/local/bin/rs"
-GITHUB_REPO="SP1K33/RemnaSuper"
+GITHUB_REPO="obkaiter/RemnaSuper"
 GITHUB_BRANCH="${REMNASUPER_BRANCH:-main}"
-GITHUB_TARBALL_URL="https://codeload.github.com/${GITHUB_REPO}/tar.gz/refs/heads/${GITHUB_BRANCH}"
 
 if [ "$EUID" -ne 0 ]; then
     printf "[x] Запустите установку от root: curl -fsSL https://raw.githubusercontent.com/%s/%s/install.sh | sudo bash\n" "$GITHUB_REPO" "$GITHUB_BRANCH"
@@ -24,80 +21,48 @@ require_command() {
 require_command curl
 require_command tar
 
-if [ "$INSTALL_DIR" != "/opt/RemnaSuper" ]; then
-    printf "[x] Небезопасный путь установки: %s\n" "$INSTALL_DIR"
+if ! commit="$(curl -fsSL --connect-timeout 5 --max-time 10 \
+    -H 'Accept: application/vnd.github.sha' -H 'Cache-Control: no-cache' \
+    "https://api.github.com/repos/$GITHUB_REPO/commits/$GITHUB_BRANCH")" ||
+    [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+    printf "[x] Не удалось определить коммит установки на GitHub.\n"
     exit 1
 fi
-
-prepare_install_dir() {
-    local legacy_base legacy_path suffix=0
-
-    if [ -d "$INSTALL_DIR" ] && [ ! -L "$INSTALL_DIR" ]; then
-        return 0
-    fi
-
-    if [ -e "$INSTALL_DIR" ] || [ -L "$INSTALL_DIR" ]; then
-        legacy_base="${INSTALL_DIR}.legacy.$(date +%Y%m%d%H%M%S)"
-        legacy_path="$legacy_base"
-
-        while [ -e "$legacy_path" ] || [ -L "$legacy_path" ]; do
-            suffix=$((suffix + 1))
-            legacy_path="${legacy_base}.${suffix}"
-        done
-
-        printf "[i] %s уже существует и не является каталогом. Перенос в %s\n" "$INSTALL_DIR" "$legacy_path"
-        if ! mv -- "$INSTALL_DIR" "$legacy_path"; then
-            printf "[x] Не удалось сохранить существующий %s.\n" "$INSTALL_DIR"
-            return 1
-        fi
-    fi
-
-    if ! mkdir -p "$INSTALL_DIR"; then
-        printf "[x] Не удалось создать каталог установки: %s\n" "$INSTALL_DIR"
-        return 1
-    fi
-}
 
 tmp_dir="$(mktemp -d)"
 archive="$tmp_dir/remnasuper.tar.gz"
 src_root="$tmp_dir/source"
 
 cleanup() {
-    rm -rf "$tmp_dir"
+    rm -rf -- "$tmp_dir"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 printf "[>] Скачивание RemnaSuper...\n"
-curl -fL --connect-timeout 10 --max-time 60 -o "$archive" "$GITHUB_TARBALL_URL"
+curl -fsSL --connect-timeout 10 --max-time 60 -o "$archive" \
+    "https://codeload.github.com/$GITHUB_REPO/tar.gz/$commit"
 
 mkdir -p "$src_root"
 tar -xzf "$archive" -C "$src_root"
-src_dir="$(find "$src_root" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-
-if [ -z "$src_dir" ] || [ ! -f "$src_dir/RemnaSuper" ] || [ ! -d "$src_dir/lib" ] || [ ! -f "$src_dir/VERSION" ] ||
-   [ ! -f "$src_dir/lib/system/relay_deploy.sh" ] ||
-   [ ! -f "$src_dir/lib/system/iperf3_ru.sh" ]; then
-    printf "[x] В архиве нет обязательных файлов RemnaSuper.\n"
+source_dirs=("$src_root"/*)
+if (( ${#source_dirs[@]} != 1 )) || [[ ! -d "${source_dirs[0]}" ]]; then
+    printf "[x] Не удалось определить каталог RemnaSuper в архиве.\n"
     exit 1
 fi
+APP_DIR="${source_dirs[0]}"
 
-source "$src_dir/lib/config.sh"
-source "$src_dir/lib/ui.sh"
-source "$src_dir/lib/common.sh"
-source "$src_dir/lib/system/relay_deploy.sh"
-validate_relay_payload "$src_dir/haproxy"
+for module in config ui common update; do
+    if [[ ! -s "$APP_DIR/lib/$module.sh" ]]; then
+        printf "[x] В архиве нет обязательного файла lib/%s.sh.\n" "$module"
+        exit 1
+    fi
+    source "$APP_DIR/lib/$module.sh"
+done
 
-printf "[>] Установка в %s...\n" "$INSTALL_DIR"
-prepare_install_dir
-sync_relay_payload "$src_dir/haproxy"
-rm -rf "${INSTALL_DIR:?}/lib"
-cp -a "$src_dir/lib" "$INSTALL_DIR/"
-install -m 755 "$src_dir/RemnaSuper" "$INSTALL_DIR/RemnaSuper"
-install -m 644 "$src_dir/VERSION" "$INSTALL_DIR/VERSION"
-[ -f "$src_dir/install.sh" ] && install -m 755 "$src_dir/install.sh" "$INSTALL_DIR/install.sh"
-[ -f "$src_dir/README.md" ] && install -m 644 "$src_dir/README.md" "$INSTALL_DIR/README.md"
+step "Установка в $INSTALL_DIR..."
+install_from_dir "$APP_DIR"
 
-ln -sfn "$INSTALL_DIR/RemnaSuper" "$COMMAND_LINK"
-
-printf "[ok] Установлено.\n"
-printf "[i] Запуск из любого места: rs\n"
+success "Установлено."
+info "Запуск из любого места: rs"
