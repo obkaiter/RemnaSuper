@@ -87,13 +87,21 @@ show_menu_options() {
 }
 
 select_menu() {
-    local output_variable="$1"
-    local default_value="$2"
-    local render_menu="$3"
-    shift 3
+    local output_variable="$1" menu_selection
+    shift
+
+    {
+        menu_selection="$(_select_menu "$@" 3>&1 >&4)" || return
+    } 4>&1
+    printf -v "$output_variable" '%s' "${menu_selection%.}"
+}
+
+_select_menu() (
+    local default_value="$1" render_menu="$2"
+    shift 2
 
     local -a menu_rows=() menu_positions=() menu_values=()
-    local key terminal_size terminal_height visible_rows selected_row row frame
+    local key terminal_state terminal_size terminal_height visible_rows selected_row row frame
     local rendered_size rendered_selected_row previous_offset selected_offset
     local selected=0 first_row=0 rendered_first_row=-1 rendered_rows=0
 
@@ -102,6 +110,12 @@ select_menu() {
         return 1
     fi
     check_command stty || return 1
+    terminal_state="$(stty -g)" || return 1
+    trap 'stty "$terminal_state" || exit 1' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    stty -echo -icanon min 1 time 0 || return 1
     "$render_menu" "$@" || return
     (( ${#menu_values[@]} )) || return 1
     for row in "${!menu_values[@]}"; do
@@ -161,14 +175,14 @@ select_menu() {
         fi
 
         while true; do
-            if ! IFS= read -rsn1 key; then
+            if ! IFS= read -rn1 key; then
                 printf '\n'
                 return 1
             fi
             case "$key" in
                 ''|$'\r')
                     printf '\n'
-                    printf -v "$output_variable" '%s' "${menu_values[selected]}"
+                    printf '%s.' "${menu_values[selected]}" >&3
                     return
                     ;;
                 $'\004')
@@ -176,9 +190,9 @@ select_menu() {
                     return 1
                     ;;
                 $'\e')
-                    IFS= read -rsn1 -t 0.2 key || continue
+                    IFS= read -rn1 -t 0.2 key || continue
                     [[ "$key" == '[' || "$key" == O ]] || continue
-                    while IFS= read -rsn1 -t 0.2 key && [[ "$key" == [\ -\?] ]]; do
+                    while IFS= read -rn1 -t 0.2 key && [[ "$key" == [\ -\?] ]]; do
                         :
                     done
                     case "$key" in
@@ -191,7 +205,7 @@ select_menu() {
             esac
         done
     done
-}
+)
 
 pause() {
     printf "\n${DIM}Enter - вернуться в меню${NC}"
