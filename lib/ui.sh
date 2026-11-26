@@ -94,7 +94,8 @@ select_menu() {
 
     local -a menu_rows=() menu_positions=() menu_values=()
     local key terminal_size terminal_height visible_rows selected_row row frame
-    local selected=0 first_row=0 rendered_rows=0
+    local rendered_size rendered_selected_row previous_offset selected_offset
+    local selected=0 first_row=0 rendered_first_row=-1 rendered_rows=0
 
     if [[ ! -t 0 || ! -t 1 ]]; then
         error "Для выбора пункта меню нужен интерактивный терминал." >&2
@@ -128,18 +129,36 @@ select_menu() {
         fi
 
         frame=
-        if (( rendered_rows )); then
-            printf -v frame '\r\e[%dA\e[J' "$rendered_rows"
-        fi
-        for ((row = first_row; row < first_row + visible_rows && row < ${#menu_rows[@]}; row++)); do
-            if (( row == selected_row )); then
-                printf -v frame '%s  %b→%b %s\n' "$frame" "$GREEN" "$NC" "${menu_rows[row]:4}"
-            else
-                frame+="${menu_rows[row]}"$'\n'
+        if (( first_row == rendered_first_row )) && [[ "$terminal_size" == "$rendered_size" ]]; then
+            if (( selected_row != rendered_selected_row )); then
+                previous_offset=$((rendered_rows - (rendered_selected_row - first_row)))
+                selected_offset=$((rendered_rows - (selected_row - first_row)))
+                printf -v frame '\r\e[%dA    \r\e[%dB' "$previous_offset" "$previous_offset"
+                printf -v frame '%s\e[%dA  %b→%b \r\e[%dB' "$frame" "$selected_offset" "$GREEN" "$NC" "$selected_offset"
             fi
-        done
-        rendered_rows=$((row - first_row))
-        printf '\e[?7l%s%b↑/↓ — перемещение, Enter — выбрать%b\e[?7h' "$frame" "$DIM" "$NC"
+        else
+            if (( rendered_rows )); then
+                printf -v frame '\r\e[%dA' "$rendered_rows"
+            fi
+            for ((row = first_row; row < first_row + visible_rows && row < ${#menu_rows[@]}; row++)); do
+                if (( row == selected_row )); then
+                    printf -v frame '%s\e[2K  %b→%b %s\r\n' "$frame" "$GREEN" "$NC" "${menu_rows[row]:4}"
+                else
+                    frame+=$'\e[2K'"${menu_rows[row]}"$'\r\n'
+                fi
+            done
+            if (( row - first_row < rendered_rows )); then
+                frame+=$'\e[J'
+            fi
+            rendered_rows=$((row - first_row))
+            rendered_first_row=$first_row
+            rendered_size=$terminal_size
+            printf -v frame '%s\e[2K%b↑/↓ — перемещение, Enter — выбрать%b' "$frame" "$DIM" "$NC"
+        fi
+        rendered_selected_row=$selected_row
+        if [[ -n "$frame" ]]; then
+            printf '\e[?7l%s\e[?7h' "$frame"
+        fi
 
         while true; do
             if ! IFS= read -rsn1 key; then
